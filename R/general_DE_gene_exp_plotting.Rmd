@@ -1,0 +1,633 @@
+---
+title: "DE and gene expression plotting"
+---
+
+# Load R packages
+```{r}
+###---> ThreeDRNAseq R package
+library(ThreeDRNAseq)
+
+###---> Denpendency R package
+library(tximport)
+library(edgeR)
+library(limma)
+library(RUVSeq)
+library(eulerr)
+library(gridExtra)
+library(grid)
+library(ComplexHeatmap)
+library(ggplot2)
+library(ggrepel)
+library(FactoMineR)
+library(stringr)
+library(org.Hs.eg.db)
+library(dplyr)
+library(tidyr)
+options(stringsAsFactors=F)
+
+```
+
+```{r}
+##save to object
+DDD.data <- list()
+################################################################################
+##----->> Set folders to read and save results
+data.folder <- file.path(getwd(),'data') # for .RData format results
+result.folder <- file.path(getwd(),'result') # for 3D analysis results in csv files
+figure.folder <- file.path(getwd(),'figure')# for figures
+report.folder <- file.path(getwd(),'report')
+
+DDD.data$data.folder <- data.folder
+DDD.data$result.folder <- result.folder
+DDD.data$figure.folder <- figure.folder
+DDD.data$report.folder <- report.folder
+
+if(!file.exists(data.folder))
+  dir.create(path = data.folder,recursive = T)
+if(!file.exists(result.folder))
+  dir.create(path = result.folder,recursive = T)
+if(!file.exists(figure.folder))
+  dir.create(path = figure.folder,recursive = T)
+if(!file.exists(report.folder))
+  dir.create(path = report.folder,recursive = T)
+
+### Set the input data folder
+##----->> folder of input files
+input.folder <- '3D RNA-seq App data'
+quant.folder <- '3D RNA-seq App data/quant'
+if(!file.exists(input.folder))
+  dir.create(path = input.folder,recursive = T)
+if(!file.exists(quant.folder))
+  dir.create(path = quant.folder,recursive = T)
+
+
+################################################################################
+##----->> parameters of tximport to generate read counts and TPMs
+quant_method <- 'salmon' # abundance generator
+tximport_method <- 'lengthScaledTPM' # method to generate expression in tximport
+
+################################################################################
+##----->> parameters for data pre-processing
+### has sequencing replicates?
+has_srep <- T
+
+### parameter for low expression filters
+cpm_cut <- 1
+cpm_samples_n <- 20
+
+### parameter for batch effect estimation
+has_batcheffect <- T
+RUVseq_method <- 'RUVr' # RUVseq_method is one of 'RUVr', 'RUVs' and 'RUVg'
+
+### data normalisation parameter
+norm_method <- 'TMM' ## norm_method is one of 'TMM','RLE' and 'upperquartile'
+
+
+################################################################################
+##----->> parameters for 3D analysis
+pval_adj_method <- 'BH'
+pval_cut <- 0.01
+l2fc_cut <- 1
+DE_pipeline <- 'limma'
+deltaPS_cut <- 0.1
+DAS_pval_method <- 'F-test'
+
+################################################################################
+##----->> heatmap
+dist_method <- 'euclidean'
+cluster_method <- 'ward.D'
+cluster_number <- 10
+
+################################################################################
+##----->> TSIS
+TSISorisokTSP <- 'isokTSP'
+TSIS_method_intersection <- method_intersection <- 'mean'
+TSIS_spline_df <- spline_df <- NULL
+TSIS_prob_cut <- 0.5
+TSIS_diff_cut <- 1
+TSIS_adj_pval_cut <- 0.05
+TSIS_time_point_cut <- 1
+TSIS_cor_cut <- 0
+
+```
+
+# Data generation
+## Read files
+```{r}
+################################################################################
+##----->> Meta table includes sample information, e.g. conditions, bio-reps, seq-reps, abundance paths, etc.
+metatable <- read.csv(file.path(getwd(),'metatable_UT.csv'))
+##select the columns of experimental design
+factor_col <- c('Type')
+name_col <- 'name'
+quant_col <- 'quant_files'
+
+##arrange information in the metatable
+metatable$label <- as.vector(interaction(metatable[,factor_col]))
+metatable$sample.name <- as.vector(metatable[,name_col])
+metatable$quant.folder <-  file.path(quant.folder, metatable$quant.files, ifelse(quant_method=='salmon','quant.sf','abundance.h5'))
+
+##----->> Transcript-gene association mapping
+mapping <-read.csv(file.path(getwd(),'mapping.csv'))
+mapping <- data.frame(as.matrix(mapping),stringsAsFactors = F)
+rownames(mapping) <- mapping$TXNAME
+
+```
+
+## Run tximport
+```{r}
+################################################################################
+##----->> Generate gene expression
+##
+txi_genes <- tximport(metatable$quant.folder,dropInfReps = T,
+                      type = quant_method, tx2gene = mapping,
+                      countsFromAbundance = tximport_method)
+
+## give colunames to the datasets
+colnames(txi_genes$counts) <-
+  colnames(txi_genes$abundance) <-
+  colnames(txi_genes$length) <-metatable$sample.name
+
+## save the data
+write.csv(txi_genes$counts,file=paste0(result.folder,'/counts_genes_UT.csv'))
+write.csv(txi_genes$abundance,file=paste0(result.folder,'/TPM_genes_UT.csv'))
+save(txi_genes,file=paste0(data.folder,'/txi_genes_UT.RData'))
+
+################################################################################
+##----->> Generate transcripts expression
+txi_trans<- tximport(metatable$quant.folder, 
+                     type = quant_method, tx2gene = NULL,
+                     countsFromAbundance = tximport_method,
+                     txOut = T,dropInfReps = T)
+
+## give column names to the data sets
+colnames(txi_trans$counts) <- 
+  colnames(txi_trans$abundance) <-
+  colnames(txi_trans$length) <-metatable$sample.name
+
+## save the data
+write.csv(txi_trans$counts,file=paste0(result.folder,'/counts_trans_UT.csv'))
+write.csv(txi_trans$abundance,file=paste0(result.folder,'/TPM_trans_UT.csv'))
+save(txi_trans,file=paste0(data.folder,'/txi_trans_UT.RData'))
+
+################################################################################
+##extract gene and transcript read counts
+genes_counts <- txi_genes$counts
+trans_counts <- txi_trans$counts
+trans_TPM <- txi_trans$abundance
+#write.csv(genes_counts, file=paste0(result.folder,'/genes_counts.csv'))
+#write.csv(target_high$genes_high, file=paste0(result.folder,'/genes_high.csv'))
+```
+## Filter low expression transcripts/genes
+To filter the low expressed transcripts across the samples, the expression mean-variance trend is used to determine the CPM (count per million reads) cut-off for low expression and the number of samples to cut. A gene is expressed if any of its transcript is expressed. Please see the details in the 3D RNA-seq App user manual.
+
+```{r}
+################################################################################
+##----->> Do the filters
+target_high <- low.expression.filter(abundance = trans_counts,
+                                     mapping = mapping,
+                                     abundance.cut = cpm_cut,
+                                     sample.n = cpm_samples_n,
+                                     unit = 'counts',
+                                     Log=F)
+##save expressed genes and transcripts
+save(target_high,file=paste0(data.folder,'/target_high.RData'))
+
+################################################################################
+##----->> Mean-variance plot
+## transcript level
+metatable_new <- metatable
+
+counts.raw = trans_counts[rowSums(trans_counts>0)>0,]
+counts.filtered = trans_counts[target_high$trans_high,]
+mv.trans <- check.mean.variance(counts.raw = counts.raw,
+                                counts.filtered = counts.filtered,
+                                condition = metatable_new$label)
+
+
+# Remove not matched data from genes some reason?
+target_high$genes_high <- Filter(function(x) any(rownames(genes_counts) %in% x), target_high$genes_high)
+```
+## Batch effect estimation
+++
+The batch effect estimation step is only executed when there are distinct bath effects in the data: (1) The biological replicates of the same conditions stay in separate clusters in the PCA plot and There is experimental explanation of this separation (e.g. bio-reps in different time/labs). Otherwise skip this step to avoid data over-modification. The RUVSeq (Risso et al., 2014) is used to estimate the batch effects. It will generate modified read counts, where the batch effects have been removed, for batch-free PCA plots and batch effect term which can be passed to the linear regression model for 3D analysis.
+
+```{r}
+design <- condition2design(condition = metatable_new$label,
+                           batch.effect = NULL)
+
+################################################################################
+##----->> trans level
+trans_batch <- remove.batch(read.counts = trans_counts[target_high$trans_high,],
+                            condition = metatable_new$label,
+                            design = design,
+                            contrast=NULL,
+                            group = metatable_new$label,
+                            method = RUVseq_method)
+save(trans_batch,file=paste0(data.folder,'/trans_batch_UT.RData')) 
+
+################################################################################
+##----->> genes level
+genes_batch <- remove.batch(read.counts = genes_counts[rownames(genes_counts) %in% target_high$genes_high,],
+                            condition = metatable_new$label,
+                            design = design,
+                            contrast=NULL,
+                            group = metatable_new$label,
+                            method = RUVseq_method)
+save(genes_batch,file=paste0(data.folder,'/genes_batch_UT.RData')) 
+
+```
+
+```{r}
+################################################################################
+## DO the PCA again
+################################################################################
+
+##----->> trans level
+data2pca <- trans_batch$normalizedCounts[target_high$trans_high,]
+dge <- DGEList(counts=data2pca) 
+dge <- calcNormFactors(dge)
+data2pca <- t(counts2CPM(obj = dge,Log = T))
+dim1 <- 'PC1'
+dim2 <- 'PC2'
+ellipse.type <- 'polygon' #ellipse.type=c('none','ellipse','polygon')
+```
+
+```{r}
+##--All Bio-reps plots
+groups <- metatable_new$label ## colour on biological replicates
+# groups <- metatable_new$label ## colour on conditions
+par(mar = c(18, 1, 18, 1))
+g <- plotPCAind(data2pca = data2pca,dim1 = dim1,dim2 = dim2,
+                  groups = groups,plot.title = 'Transcript PCA: bio-reps',
+                  ellipse.type = ellipse.type,
+                  add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript PCA batch effect removed Bio-reps_UT.png'),
+    width = 30/2.54,height = 20/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript PCA batch effect removed Bio-reps_UT.pdf'),
+    width = 30/2.54,height = 20/2.54)
+print(g)
+dev.off()
+```
+```{r}
+##################################################
+##--average expression plot
+groups <- metatable_new$label
+data2pca.ave <- rowmean(data2pca,metatable_new$label,reorder = F)
+groups <- unique(metatable_new$label)
+g <- plotPCAind(data2pca = data2pca.ave,dim1 = 'PC1',dim2 = 'PC2',
+                  groups = groups,plot.title = 'Transcript PCA: average expression',
+                  ellipse.type = 'none',add.label = T,adj.label = T)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript PCA batch effect removed average expression_UT.png'),
+    width = 30/2.54,height = 20/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript PCA batch effect removed average expression_UT.pdf'),
+    width = 30/2.54,height = 20/2.54)
+print(g)
+dev.off()
+
+
+################################################################################
+##----->> genes level
+data2pca <- genes_batch$normalizedCounts[target_high$genes_high,]
+dge <- DGEList(counts=data2pca) 
+dge <- calcNormFactors(dge)
+data2pca <- t(counts2CPM(obj = dge,Log = T))
+dim1 <- 'PC1'
+dim2 <- 'PC2'
+ellipse.type <- 'polygon' #ellipse.type=c('none','ellipse','polygon')
+
+##--All Bio-reps plots
+rownames(data2pca) <- gsub('_','.',rownames(data2pca))
+groups <- metatable_new$label ## colour on biological replicates
+# groups <- metatable_new$label ## colour on condtions
+g <- plotPCAind(data2pca = data2pca,dim1 = dim1,dim2 = dim2,
+                  groups = groups,plot.title = 'PCA for Keloids vs. Normal',
+                  ellipse.type = ellipse.type,
+                  add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene PCA batch effect removed Bio-reps_UT.png'),
+    width = 30/2.54,height = 20/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene PCA batch effect removed Bio-reps_UT.pdf'),
+    width = 30/2.54,height = 20/2.54)
+print(g)
+dev.off()
+
+##################################################
+##--average expression plot
+rownames(data2pca) <- gsub('_','.',rownames(data2pca))
+groups <- metatable_new$label
+data2pca.ave <- rowmean(data2pca,metatable_new$label,reorder = F)
+groups <- unique(metatable_new$label)
+g <- plotPCAind(data2pca = data2pca.ave,dim1 = 'PC1',dim2 = 'PC2',
+                  groups = groups,plot.title = 'genescript PCA: average expression',
+                  ellipse.type = 'none',add.label = T,adj.label = T)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene PCA batch effect removed average expression_UT.png'),
+    width = 30/2.54,height = 20/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene PCA batch effect removed average expression_UT.pdf'),
+    width = 30/2.54,height = 20/2.54)
+print(g)
+dev.off()
+```
+## Data normalization
+The same transcript/gene in deeper sequenced samples have more mapped reads. To make genes/transcripts comparable across samples, the "TMM", "RLE" or "upperquantile" method can be used to normalize the expression.
+
+```{r}
+################################################################################
+##----->> trans level
+dge <- DGEList(counts=trans_counts[target_high$trans_high,],
+               group = metatable_new$label,
+               genes = mapping[target_high$trans_high,])
+trans_dge <- suppressWarnings(calcNormFactors(dge,method = norm_method))
+save(trans_dge,file=paste0(data.folder,'/trans_dge_UT.RData'))
+
+################################################################################
+##----->> genes level
+dge <- DGEList(counts=genes_counts[target_high$genes_high,],
+               group = metatable_new$label)
+genes_dge <- suppressWarnings(calcNormFactors(dge,method = norm_method))
+save(genes_dge,file=paste0(data.folder,'/genes_dge_UT.RData'))
+
+################################################################################
+##----->> distribution plot
+sample.name <- metatable_new$sample.name
+condition <- metatable_new$label
+
+###--- trans level
+data.before <- trans_counts[target_high$trans_high,]
+data.after <- counts2CPM(obj = trans_dge,Log = T)
+normalized_cpm_transcript <- data.after
+## save the data
+write.csv(normalized_cpm_transcript,file=paste0(result.folder,'/normalized_cpm_transcript_UT.csv'))
+
+g <- boxplotNormalised(data.before = data.before,
+                        data.after = data.after,
+                        condition = condition,
+                        sample.name = sample.name)
+do.call(grid.arrange,g)
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript expression distribution_UT.png'),
+    width = 20/2.54,height = 20/2.54,units = 'in',res = 300)
+do.call(grid.arrange,g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript expression distribution_UT.pdf'),
+    width = 20/2.54,height = 20/2.54)
+do.call(grid.arrange,g)
+dev.off()
+
+###--- genes level
+data.before <- genes_counts[target_high$genes_high,]
+data.after <- counts2CPM(obj = genes_dge,Log = T)
+normalized_cpm_gene <- data.after
+## save the data
+write.csv(normalized_cpm_gene,file=paste0(result.folder,'/normalized_cpm_gene_UT.csv'))
+
+g <- boxplotNormalised(data.before = data.before,
+                        data.after = data.after,
+                        condition = condition,
+                        sample.name = sample.name)
+do.call(grid.arrange,g)
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene expression distribution_UT.png'),
+    width = 20/2.54,height = 20/2.54,units = 'in',res = 300)
+do.call(grid.arrange,g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene expression distribution_UT.pdf'),
+    width = 20/2.54,height = 20/2.54)
+do.call(grid.arrange,g)
+dev.off()
+```
+# Design matrix
+```{r}
+g <- genes_dge$samples$group
+design <- model.matrix(~0+g)
+colnames(design) <- levels(g)
+design
+```
+## Dispersion estimation
+```{r}
+d0 <- estimateDisp(genes_dge, design, robust=TRUE)
+plotBCV(d0)
+
+fit <- glmQLFit(d0, design, robust=TRUE)
+head(fit$coefficients)
+plotQLDisp(fit)
+```
+#DE
+
+```{r}
+NvsK <- makeContrasts(Normal - Keloids, levels=design)
+res <- glmQLFTest(fit, contrast = NvsK)
+topTags(res)
+
+is.de <- decideTestsDGE(res)
+summary(is.de)
+```
+```{r}
+### Differential expression plot
+png(filename = paste0(figure.folder,'/Differential_gene_expression_NormalvsKeloids.png'),
+    width = 25/2.54,height = 20/2.54,units = 'in',res = 300)
+plotMD(res, status=is.de, values=c(1,-1), col=c("red","blue"), legend="topright", main = "Differential gene expression (Normal vs. Keloids")
+dev.off()
+```
+## Differential expression relative to a fold-change threshold
+glmQLFTest identifies differential expression based on statistical significance regardless of how small the difference might be. For some purposes we may be interested only in genes with reasonably large expression changes. 
+
+A commonly used approach is to apply FDR and logFC cutoffs simultaneously. However this trends to favor lowly expressed genes, and also fails to control the FDR correctly. A better and more rigorous approach is to modify the statistical test so as to detect expression changes greater than a specified threshold. In edgeR, this can be done using the glmTreat unction. This function is analogous to the TREAT method for microarrays but is adated to the NB framework. 
+
+Here we test whether the DE fold changes are significantly greater than 1.5, that is whether the logFCs are significantly greater than log2(1.5):
+
+```{r}
+tr <- glmTreat(fit, contrast=NvsK, lfc=log2(1.5))
+gene1 <- topTags(tr, n=200, adjust.method="BH", sort.by="PValue")
+```
+## Adding gene symbol
+
+# Remove version info from the ENSEMBL ID
+
+```{r}
+
+gene1$table$Symbol <- str_replace(row.names(gene1),
+                            pattern = ".[0-9]+$",
+                           replacement = "")
+# Annotate
+gene1$table$Symbol <- mapIds(org.Hs.eg.db, keys = gene1$table$Symbol, keytype = "ENSEMBL", column = "SYMBOL")
+
+```
+```{r}
+# Remove missing entrezID genes
+gene1$table <- gene1$table[complete.cases(gene1$table$Symbol),]
+
+rankgene <- gene1[order(-gene1$table$logFC),]
+
+write.csv(rankgene,file=paste0(result.folder,'/ranked_topgene_UT_NvsK.csv'),
+          row.names = T)
+write.csv(gene1,file=paste0(result.folder,'/topgene_UT_NvsK.csv'),
+          row.names = T)
+```
+
+```{r}
+#### UT comparison between Keloids vs. Normal.
+k <- gene1$table$logFC > 0
+gene1_up <- gene1[k, ]
+gene1_up <- gene1_up[1:20,]
+
+k2 <- gene1$table$logFC < 0
+gene1_dn <- gene1[k2, ]
+gene1_dn <- gene1_dn[1:20,]
+
+top20 <- rbind(gene1_up$table, gene1_dn$table)
+top20
+write.csv(top20, file=paste0(result.folder, "/top20_NvsK_UT.csv"),row.names = T)
+```
+
+## Heat map clustering
+Heatmaps are a popular way to display differential expression results for publication purposes. To create a heatmap, we first convert the read counts into log2-counts-per-million (logCPM) values. This can be done with the cpm function:
+We will create a heatmap to visualize the top 50 DE genes according to the TREAT test between keloid vs. normal. The advantage of a heatmap is that it can display the expression pattern of the genes across all the samples. Visualization of the results is aided by clustering together genes that have correlated expression patterns. First we select the logCPM values for the 30 top genes:
+
+```{r}
+
+treat <- tr
+treat$table$Symbol <- str_replace(row.names(treat$table),
+                            pattern = ".[0-9]+$",
+                           replacement = "")
+
+
+# Annotate
+treat$table$Symbol <- mapIds(org.Hs.eg.db, keys = treat$table$Symbol, keytype = "ENSEMBL", column = "SYMBOL")
+
+treat$table <- treat$table[complete.cases(treat$table$Symbol),]
+
+d1 <- d0
+
+row.names(d1) <- str_replace(row.names(d1),
+                            pattern = ".[0-9]+$",
+                           replacement = "")
+
+# Annotate
+row.names(d1) <- mapIds(org.Hs.eg.db, keys = row.names(d1), keytype = "ENSEMBL", column = "SYMBOL")
+
+
+# Remove missing entrezID genes
+d1 <- d1[complete.cases(row.names(d1)),]
+
+logCPM1 <- cpm(d1, prior.count=2, log=TRUE)
+rownames(logCPM1) <- row.names(d1)
+colnames(logCPM1) <- paste(rownames(d1$samples))
+
+
+o1 <- c(top20$Symbol)
+logCPM1 <- logCPM1[o1,]
+```
+
+Then we scale each row (each gene) to have mean zero and standard deviation one:
+```{r}
+logCPM1 <- t(scale(t(logCPM1)))
+write.csv(logCPM1, file=paste0(result.folder, "/logCPM_NvsK_UT.csv"), row.names = T)
+```
+
+By default, heatmap.2 clusters genes and samples based on Euclidean distance between the expression values. Because we have pre-standardized the rows of the logCPM matrix, the Euclidean distance between each pair of genes is proportional to (1 − r)2, where r is the Pearson correlation coefficient between the two genes. This shows that the heatmap will cluster together genes that have positively correlated logCPM values, because large positive correlations correspond to small distances.
+```{r}
+library(gplots)
+# genes between NvsK in UT
+png(filename = paste0(figure.folder,'/heatmap_NvsK_UT.png'),
+    width =665, height = 425,units = 'mm',res = 300)
+col.pan <- colorpanel(100, "blue", "white", "red")
+heatmap.2(logCPM1, col=col.pan, Rowv=TRUE, scale="row",
+          trace="none", dendrogram="none", cexRow=1, cexCol=1.4, density.info="none",
+          margin=c(10,9), lhei=c(2,10), lwid=c(2,6))
+dev.off()
+
+pdf(file = paste0(figure.folder,'/heatmap_NvsK_UTs.pdf'),
+    width = 50/2.54,height = 30/2.54)
+col.pan <- colorpanel(100, "blue", "white", "red")
+heatmap.2(logCPM1, col=col.pan, Rowv=TRUE, scale="row",
+          trace="none", dendrogram="none", cexRow=1, cexCol=1.4, density.info="none",
+          margin=c(10,9), lhei=c(2,10), lwid=c(2,6))
+dev.off()
+```
+# Plotting individual genes
+```{r}
+logCPM_p <- cpm(d1, prior.count=2, log=TRUE)
+rownames(logCPM_p) <- row.names(d1)
+colnames(logCPM_p) <- paste(rownames(d1$samples))
+logCPM_p <- as.data.frame(logCPM_p)
+logCPM_p$gene = row.names(logCPM_p)
+
+d = logCPM_p %>% gather(Sample, logCPM_p, -gene)
+d <- d %>%
+  mutate(group = case_when(
+    startsWith(Sample, "HDF") ~ "Normal",
+    startsWith(Sample, "K") ~ "Keloids",
+    startsWith(Sample, "P") ~ "Keloids"
+  ))
+genename = "CCND1"
+geneOfInterest = d %>% filter(gene == genename)
+
+# Reorder my levels
+geneOfInterest$group <- factor(geneOfInterest$group, levels = c("Normal", "Keloids"))
+
+My_Theme = theme(
+  axis.title.x = element_text(size = 22),
+  axis.text.x = element_text(size = 22, face = "bold"),
+  axis.text.y = element_text(size = 22, face = "bold"),
+  axis.title.y = element_text(size = 22),
+  plot.title = element_text(face = "bold", size=28))
+
+g <- ggplot(geneOfInterest, aes(x=group, y=logCPM_p, fill=group)) + geom_violin(trim=FALSE) + 
+  geom_boxplot(width= 0.1, fill = "white") + 
+  labs(title = genename, x = "Groups", y = "Counts (log2CPM)") + 
+  geom_point(position=position_jitter(w=0.1,h=0)) +
+  theme(legend.title = element_text(size = 28), 
+        legend.text = element_text(size = 28)) + 
+  My_Theme
+  
+
+pdf(file = paste0(figure.folder,'/gene_exp_',genename , '.pdf'),
+    width = 30/2.54,height = 20/2.54)
+print(g)
+dev.off()
+
+png(filename = paste0(figure.folder,'/gene_exp_',genename ,'.png'),
+    width =400, height = 300,units = 'mm',res = 300)
+print(g)
+dev.off()
+
+
+```
+
+# Session info {.unnumbered}
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```
