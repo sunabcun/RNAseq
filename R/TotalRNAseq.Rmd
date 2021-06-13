@@ -1,0 +1,2321 @@
+---
+title: "3D_RNA-seq"
+author:
+- name: Yuna
+output:
+  BiocStyle::html_document
+
+vignette: |
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+# Load R packages
+```{r}
+###---> ThreeDRNAseq R package
+library(ThreeDRNAseq)
+
+###---> Denpendency R package
+library(tximport)
+library(edgeR)
+library(limma)
+library(RUVSeq)
+library(eulerr)
+library(gridExtra)
+library(grid)
+library(ComplexHeatmap)
+library(ggplot2)
+library(ggrepel)
+library(FactoMineR)
+
+options(stringsAsFactors=F)
+
+```
+
+```{r}
+##save to object
+DDD.data <- list()
+################################################################################
+##----->> Set folders to read and save results
+data.folder <- file.path(getwd(),'data') # for .RData format results
+result.folder <- file.path(getwd(),'result') # for 3D analysis results in csv files
+figure.folder <- file.path(getwd(),'figure')# for figures
+report.folder <- file.path(getwd(),'report')
+
+DDD.data$data.folder <- data.folder
+DDD.data$result.folder <- result.folder
+DDD.data$figure.folder <- figure.folder
+DDD.data$report.folder <- report.folder
+
+if(!file.exists(data.folder))
+  dir.create(path = data.folder,recursive = T)
+if(!file.exists(result.folder))
+  dir.create(path = result.folder,recursive = T)
+if(!file.exists(figure.folder))
+  dir.create(path = figure.folder,recursive = T)
+if(!file.exists(report.folder))
+  dir.create(path = report.folder,recursive = T)
+
+### Set the input data folder
+##----->> folder of input files
+input.folder <- '3D RNA-seq App data'
+quant.folder <- '3D RNA-seq App data/quant'
+if(!file.exists(input.folder))
+  dir.create(path = input.folder,recursive = T)
+if(!file.exists(quant.folder))
+  dir.create(path = quant.folder,recursive = T)
+
+
+################################################################################
+##----->> parameters of tximport to generate read counts and TPMs
+quant_method <- 'salmon' # abundance generator
+tximport_method <- 'lengthScaledTPM' # method to generate expression in tximport
+
+################################################################################
+##----->> parameters for data pre-processing
+### has sequencing replicates?
+has_srep <- T
+
+### parameter for low expression filters
+cpm_cut <- 1
+cpm_samples_n <- 15
+
+### parameter for batch effect estimation
+has_batcheffect <- T
+RUVseq_method <- 'RUVr' # RUVseq_method is one of 'RUVr', 'RUVs' and 'RUVg'
+
+### data normalisation parameter
+norm_method <- 'TMM' ## norm_method is one of 'TMM','RLE' and 'upperquartile'
+
+
+################################################################################
+##----->> parameters for 3D analysis
+pval_adj_method <- 'BH'
+pval_cut <- 0.01
+l2fc_cut <- 1
+DE_pipeline <- 'limma'
+deltaPS_cut <- 0.1
+DAS_pval_method <- 'F-test'
+
+################################################################################
+##----->> heatmap
+dist_method <- 'euclidean'
+cluster_method <- 'ward.D'
+cluster_number <- 10
+
+################################################################################
+##----->> TSIS
+TSISorisokTSP <- 'isokTSP'
+TSIS_method_intersection <- method_intersection <- 'mean'
+TSIS_spline_df <- spline_df <- NULL
+TSIS_prob_cut <- 0.5
+TSIS_diff_cut <- 1
+TSIS_adj_pval_cut <- 0.05
+TSIS_time_point_cut <- 1
+TSIS_cor_cut <- 0
+
+```
+
+# Data generation
+## Read files
+```{r}
+################################################################################
+##----->> Meta table includes sample information, e.g. conditions, bio-reps, seq-reps, abundance paths, etc.
+metatable <- read.csv(file.path(getwd(),'metatable_total.csv'))
+##select the columns of experimental design
+factor_col <- c('Type')
+name_col <- 'name'
+quant_col <- 'quant_files'
+
+##arrange information in the metatable
+metatable$label <- as.vector(interaction(metatable[,factor_col]))
+metatable$sample.name <- as.vector(metatable[,name_col])
+metatable$quant.folder <-  file.path(quant.folder, metatable$quant.files, ifelse(quant_method=='salmon','quant.sf','abundance.h5'))
+
+##----->> Transcript-gene association mapping
+mapping <-read.csv(file.path(getwd(),'mapping.csv'))
+mapping <- data.frame(as.matrix(mapping),stringsAsFactors = F)
+rownames(mapping) <- mapping$TXNAME
+
+```
+
+## Run tximport
+```{r}
+################################################################################
+##----->> Generate gene expression
+##
+txi_genes <- tximport(metatable$quant.folder,dropInfReps = T,
+                      type = quant_method, tx2gene = mapping,
+                      countsFromAbundance = tximport_method)
+
+## give column names to the data sets
+colnames(txi_genes$counts) <-
+  colnames(txi_genes$abundance) <-
+  colnames(txi_genes$length) <-metatable$sample.name
+
+## save the data
+write.csv(txi_genes$counts,file=paste0(result.folder,'/counts_genes.csv'))
+write.csv(txi_genes$abundance,file=paste0(result.folder,'/TPM_genes.csv'))
+save(txi_genes,file=paste0(data.folder,'/txi_genes.RData'))
+
+################################################################################
+##----->> Generate transcripts expression
+txi_trans<- tximport(metatable$quant.folder, 
+                     type = quant_method, tx2gene = NULL,
+                     countsFromAbundance = tximport_method,
+                     txOut = T,dropInfReps = T)
+
+## give column names to the datasets
+colnames(txi_trans$counts) <- 
+  colnames(txi_trans$abundance) <-
+  colnames(txi_trans$length) <-metatable$sample.name
+
+## save the data
+write.csv(txi_trans$counts,file=paste0(result.folder,'/counts_trans.csv'))
+write.csv(txi_trans$abundance,file=paste0(result.folder,'/TPM_trans.csv'))
+save(txi_trans,file=paste0(data.folder,'/txi_trans.RData'))
+
+################################################################################
+##extract gene and transcript read counts
+genes_counts <- txi_genes$counts
+trans_counts <- txi_trans$counts
+trans_TPM <- txi_trans$abundance
+```
+
+# Data pre-processing
+## Filter low expression transcripts/genes
+To filter the low expressed transcripts across the samples, the expression mean-variance trend is used to determine the CPM (count per million reads) cut-off for low expression and the number of samples to cut. A gene is expressed if any of its transcript is expressed. Please see the details in the 3D RNA-seq App user manual.
+
+```{r}
+################################################################################
+##----->> Do the filters
+target_high <- low.expression.filter(abundance = trans_counts,
+                                     mapping = mapping,
+                                     abundance.cut = cpm_cut,
+                                     sample.n = cpm_samples_n,
+                                     unit = 'counts',
+                                     Log=F)
+##save expressed genes and transcripts
+save(target_high,file=paste0(data.folder,'/target_high.RData'))
+
+################################################################################
+##----->> Mean-variance plot
+## transcript level
+metatable_new <- metatable
+
+counts.raw = trans_counts[rowSums(trans_counts>0)>0,]
+counts.filtered = trans_counts[target_high$trans_high,]
+mv.trans <- check.mean.variance(counts.raw = counts.raw,
+                                counts.filtered = counts.filtered,
+                                condition = metatable_new$label)
+### make plot
+fit.raw <- mv.trans$fit.raw
+fit.filtered <- mv.trans$fit.filtered
+mv.trans.plot <- function(){
+  par(mfrow=c(1,2))
+  plotMeanVariance(x = fit.raw$sx,y = fit.raw$sy,
+                     l = fit.raw$l,lwd=2,fit.line.col ='gold',col='black')
+  title('\n\nRaw counts (transcript level)')
+  plotMeanVariance(x = fit.filtered$sx,y = fit.filtered$sy,
+                     l = fit.filtered$l,lwd=2,col='black')
+  title('\n\nFiltered counts (transcript level)')
+  lines(fit.raw$l, col = "gold",lty=4,lwd=2)
+  legend('topright',col = c('red','gold'),lty=c(1,4),lwd=3,
+         legend = c('low-exp removed','low-exp kept'))
+}
+mv.trans.plot()
+
+### save to figure folder
+png(filename = paste0(figure.folder,'/Transcript mean-variance trend.png'),
+    width = 25/2.54,height = 12/2.54,units = 'in',res = 300)
+mv.trans.plot()
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript mean-variance trend.pdf'),
+    width = 25/2.54,height = 12/2.54)
+mv.trans.plot()
+dev.off()
+
+```
+## PCA
+The PCA plot is used to visualize expression variation across conditions/samples and to determine whether the data has batch effects between different biological replicates.
+
+```{r}
+################################################################################
+##----->> trans level
+data2pca <- trans_counts[target_high$trans_high,]
+dge <- DGEList(counts=data2pca) 
+dge <- calcNormFactors(dge)
+data2pca <- t(counts2CPM(obj = dge,Log = T))
+dim1 <- 'PC1'
+dim2 <- 'PC2'
+ellipse.type <- 'polygon' #ellipse.type=c('none','ellipse','polygon')
+
+##--All Bio-reps plots
+groups <- metatable_new$label ## colour on biological replicates
+# groups <- metatable_new$label ## colour on condtions
+g <- plotPCAind(data2pca = data2pca,dim1 = dim1,dim2 = dim2,
+                  groups = groups,plot.title = 'Transcript PCA: bio-reps',
+                  ellipse.type = ellipse.type,
+                  add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript PCA Bio-reps.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript PCA Bio-reps.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+
+##################################################
+##--average expression plot
+groups <- metatable_new$label
+data2pca.ave <- rowmean(data2pca,metatable_new$label,reorder = F)
+groups <- unique(metatable_new$label)
+g <- plotPCAind(data2pca = data2pca.ave,dim1 = 'PC1',dim2 = 'PC2',
+                  groups = groups,plot.title = 'Transcript PCA: average expression',
+                  ellipse.type = 'none',add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript PCA average expression.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript PCA average expression.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+
+
+################################################################################
+##----->> genes level
+data2pca <- genes_counts[target_high$genes_high,]
+dge <- DGEList(counts=data2pca) 
+dge <- calcNormFactors(dge)
+data2pca <- t(counts2CPM(obj = dge,Log = T))
+dim1 <- 'PC1'
+dim2 <- 'PC2'
+ellipse.type <- 'polygon' #ellipse.type=c('none','ellipse','polygon')
+
+##--All Bio-reps plots
+
+groups <- metatable_new$label ## colour on biological replicates
+# groups <- metatable_new$label ## colour on condtions
+g <- plotPCAind(data2pca = data2pca,dim1 = dim1,dim2 = dim2,
+                  groups = groups,plot.title = 'genescript PCA: bio-reps',
+                  ellipse.type = ellipse.type,
+                  add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene PCA Bio-reps.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene PCA Bio-reps.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+
+##################################################
+##--average expression plot
+rownames(data2pca) <- gsub('_','.',rownames(data2pca))
+groups <- metatable_new$label
+data2pca.ave <- rowmean(data2pca,metatable_new$label,reorder = F)
+groups <- unique(metatable_new$label)
+g <- plotPCAind(data2pca = data2pca.ave,dim1 = 'PC1',dim2 = 'PC2',
+                  groups = groups,plot.title = 'genescript PCA: average expression',
+                  ellipse.type = 'none',add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene PCA average expression.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene PCA average expression.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+```
+## Batch effect estimation
+++
+The batch effect estimation step is only executed when there are distinct bath effects in the data: (1) The biological replicates of the same conditions stay in separate clusters in the PCA plot and There is experimental explanation of this separation (e.g. bio-reps in different time/labs). Otherwise skip this step to avoid data over-modification. The RUVSeq (Risso et al., 2014) is used to estimate the batch effects. It will generate modified read counts, where the batch effects have been removed, for batch-free PCA plots and batch effect term which can be passed to the linear regression model for 3D analysis.
+
+```{r}
+design <- condition2design(condition = metatable_new$label,
+                           batch.effect = NULL)
+
+################################################################################
+##----->> trans level
+trans_batch <- remove.batch(read.counts = trans_counts[target_high$trans_high,],
+                            condition = metatable_new$label,
+                            design = design,
+                            contrast=NULL,
+                            group = metatable_new$label,
+                            method = RUVseq_method)
+save(trans_batch,file=paste0(data.folder,'/trans_batch.RData')) 
+
+################################################################################
+##----->> genes level
+genes_batch <- remove.batch(read.counts = genes_counts[target_high$genes_high,],
+                            condition = metatable_new$label,
+                            design = design,
+                            contrast=NULL,
+                            group = metatable_new$label,
+                            method = RUVseq_method)
+save(genes_batch,file=paste0(data.folder,'/genes_batch.RData')) 
+
+
+################################################################################
+## DO the PCA again
+################################################################################
+
+##----->> trans level
+data2pca <- trans_batch$normalizedCounts[target_high$trans_high,]
+dge <- DGEList(counts=data2pca) 
+dge <- calcNormFactors(dge)
+data2pca <- t(counts2CPM(obj = dge,Log = T))
+dim1 <- 'PC1'
+dim2 <- 'PC2'
+ellipse.type <- 'polygon' #ellipse.type=c('none','ellipse','polygon')
+
+##--All Bio-reps plots
+groups <- metatable_new$label ## colour on biological replicates
+# groups <- metatable_new$label ## colour on condtions
+g <- plotPCAind(data2pca = data2pca,dim1 = dim1,dim2 = dim2,
+                  groups = groups,plot.title = 'Transcript PCA: bio-reps',
+                  ellipse.type = ellipse.type,
+                  add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript PCA batch effect removed Bio-reps.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript PCA batch effect removed Bio-reps.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+
+##################################################
+##--average expression plot
+groups <- metatable_new$label
+data2pca.ave <- rowmean(data2pca,metatable_new$label,reorder = F)
+groups <- unique(metatable_new$label)
+g <- plotPCAind(data2pca = data2pca.ave,dim1 = 'PC1',dim2 = 'PC2',
+                  groups = groups,plot.title = 'Transcript PCA: average expression',
+                  ellipse.type = 'none',add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript PCA batch effect removed average expression.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript PCA batch effect removed average expression.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+
+
+################################################################################
+##----->> genes level
+data2pca <- genes_batch$normalizedCounts[target_high$genes_high,]
+dge <- DGEList(counts=data2pca) 
+dge <- calcNormFactors(dge)
+data2pca <- t(counts2CPM(obj = dge,Log = T))
+dim1 <- 'PC1'
+dim2 <- 'PC2'
+ellipse.type <- 'polygon' #ellipse.type=c('none','ellipse','polygon')
+
+##--All Bio-reps plots
+rownames(data2pca) <- gsub('_','.',rownames(data2pca))
+groups <- metatable_new$label ## colour on biological replicates
+# groups <- metatable_new$label ## colour on condtions
+g <- plotPCAind(data2pca = data2pca,dim1 = dim1,dim2 = dim2,
+                  groups = groups,plot.title = 'genescript PCA: bio-reps',
+                  ellipse.type = ellipse.type,
+                  add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene PCA batch effect removed Bio-reps.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene PCA batch effect removed Bio-reps.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+
+##################################################
+##--average expression plot
+rownames(data2pca) <- gsub('_','.',rownames(data2pca))
+groups <- metatable_new$label
+data2pca.ave <- rowmean(data2pca,metatable_new$label,reorder = F)
+groups <- unique(metatable_new$label)
+g <- plotPCAind(data2pca = data2pca.ave,dim1 = 'PC1',dim2 = 'PC2',
+                  groups = groups,plot.title = 'genescript PCA: average expression',
+                  ellipse.type = 'none',add.label = T,adj.label = F)
+
+g
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene PCA batch effect removed average expression.png'),
+    width = 15/2.54,height = 13/2.54,units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene PCA batch effect removed average expression.pdf'),
+    width = 15/2.54,height = 13/2.54)
+print(g)
+dev.off()
+```
+
+
+
+## Data normalization
+The same transcript/gene in deeper sequenced samples have more mapped reads. To make genes/transcripts comparable across samples, the "TMM", "RLE" or "upperquantile" method can be used to normalize the expression.
+
+```{r}
+################################################################################
+##----->> trans level
+dge <- DGEList(counts=trans_counts[target_high$trans_high,],
+               group = metatable_new$label,
+               genes = mapping[target_high$trans_high,])
+trans_dge <- suppressWarnings(calcNormFactors(dge,method = norm_method))
+save(trans_dge,file=paste0(data.folder,'/trans_dge.RData'))
+
+################################################################################
+##----->> genes level
+dge <- DGEList(counts=genes_counts[target_high$genes_high,],
+               group = metatable_new$label)
+genes_dge <- suppressWarnings(calcNormFactors(dge,method = norm_method))
+save(genes_dge,file=paste0(data.folder,'/genes_dge.RData'))
+
+################################################################################
+##----->> distribution plot
+sample.name <- metatable_new$sample.name
+condition <- metatable_new$label
+
+###--- trans level
+data.before <- trans_counts[target_high$trans_high,]
+data.after <- counts2CPM(obj = trans_dge,Log = T)
+g <- boxplotNormalised(data.before = data.before,
+                        data.after = data.after,
+                        condition = condition,
+                        sample.name = sample.name)
+do.call(grid.arrange,g)
+
+### save to figure
+png(filename = paste0(figure.folder,'/Transcript expression distribution.png'),
+    width = 20/2.54,height = 20/2.54,units = 'in',res = 300)
+do.call(grid.arrange,g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Transcript expression distribution.pdf'),
+    width = 20/2.54,height = 20/2.54)
+do.call(grid.arrange,g)
+dev.off()
+
+###--- genes level
+data.before <- genes_counts[target_high$genes_high,]
+data.after <- counts2CPM(obj = genes_dge,Log = T)
+g <- boxplotNormalised(data.before = data.before,
+                        data.after = data.after,
+                        condition = condition,
+                        sample.name = sample.name)
+do.call(grid.arrange,g)
+
+### save to figure
+png(filename = paste0(figure.folder,'/Gene expression distribution.png'),
+    width = 20/2.54,height = 20/2.54,units = 'in',res = 300)
+do.call(grid.arrange,g)
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Gene expression distribution.pdf'),
+    width = 20/2.54,height = 20/2.54)
+do.call(grid.arrange,g)
+dev.off()
+```
+
+## Data information
+```{r}
+RNAseq_info <- data.frame(
+  Description=c('Raw transcripts',
+                'Raw genes',
+                'Samples',
+                'Samples after merging seq-reps',
+                'Condition of interest',
+                'CPM cut-off',
+                'Min samples to CPM cut-off',
+                'Expressed transcripts',
+                'Expressed genes'),
+  Number=c(length(mapping$TXNAME),
+           length(unique(mapping$GENEID)),
+           nrow(metatable),
+           nrow(metatable_new),
+           length(unique(metatable$label)),
+           cpm_cut,
+           cpm_samples_n,
+           length(target_high$trans_high),
+           length(target_high$genes_high))
+)
+DDD.data$RNAseq_info <- RNAseq_info
+
+RNAseq_info
+```
+
+# DE, DAS, and DTU analysis
+
+Three pipelines, limma (Ritchie et al., 2015), glmQL (edgeR) and glm (edgeR) (Robinson et al., 2010) are provided for DE gene and transcripts analysis. "limma" and "edgeR" have comparable performance and they have stringent controls of false positives than the "glm".
+
+## Set contrast group
+A contrast group is a user-defined comparison between two samples or two groups of samples:
+
+Pair-wise comparison of samples: e.g. B-A compares group B to group A; C-B compares group C to group B (Figure A).
+
+Compare mean of multiple samples: e.g. (WT.A+WT.B)/2-(MU.A+MU.B)/2 compares the mean of group WT.A and WT.B to the mean of group MU.A and MU.B (Figure B).
+
+Compare difference of two differences (interactions): e.g. (WT.A-WT.B)-(MU.A-MU.B) compares the difference (L2F**C) of group WT.A and WT.B to the difference (L2F**C) of group MU.A and MU.B (Figure B).
+
+```{r}
+################################################################################
+##----->> pair-wise contrast groups
+contrast_pw <- c('Desmoid-Normal')
+
+##----->> group mean contrast groups
+#contrast_mean <- c('(Desmoid + Keloid)/2 - Normal')
+
+##----->> group differences contrast groups
+#contrast_pgdiff <- c('(TA.Keloid + UT.Keloid)-(UT.Normal+TA.Normal)','(TA.Keloid + TA.Normal)-(UT.Keloid+UT.Normal)')
+
+##----->> put together
+contrast <- unique(c(contrast_pw))
+
+DDD.data$contrast_pw <- contrast_pw
+#DDD.data$contrast_mean <- contrast_mean
+#DDD.data$contrast_pgdiff <- contrast_pgdiff
+DDD.data$contrast <- contrast
+```
+
+## DE genes
+```{r}
+batch.effect <- genes_batch$W
+#batch.effect <- NULL ## if has no batch effects
+design <- condition2design(condition = metatable_new$label,
+                           batch.effect = batch.effect)
+
+################################################################################
+if(DE_pipeline == 'limma'){
+##----->> limma pipeline
+genes_3D_stat <- limma.pipeline(dge = genes_dge,
+                                 design = design,
+                                 deltaPS = NULL,
+                                 contrast = contrast,
+                                 diffAS = F,
+                                 adjust.method = pval_adj_method)
+}
+
+if(DE_pipeline == 'glmQL'){
+##----->> edgeR glmQL pipeline
+genes_3D_stat <- edgeR.pipeline(dge = genes_dge,
+                                 design = design,
+                                 deltaPS = NULL,
+                                 contrast = contrast,
+                                 diffAS = F,
+                                 method = 'glmQL',
+                                 adjust.method = pval_adj_method)
+}
+
+if(DE_pipeline == 'glm'){
+##----->> edgeR glm pipeline
+genes_3D_stat <- edgeR.pipeline(dge = genes_dge,
+                                 design = design,
+                                 deltaPS = NULL,
+                                 contrast = contrast,
+                                 diffAS = F,
+                                 method = 'glm',
+                                 adjust.method = pval_adj_method)
+}
+## save results
+DDD.data$genes_3D_stat <- genes_3D_stat
+```
+## DAS genes, DE and DTU transcripts
+```{r}
+################################################################################
+##----->> generate deltaPS
+deltaPS <- transAbundance2PS(transAbundance =txi_trans$abundance[target_high$trans_high,],
+                             PS = NULL,
+                             contrast = contrast,
+                             condition = metatable$label,
+                             mapping = mapping[target_high$trans_high,])
+
+DDD.data$PS <- PS <- deltaPS$PS
+DDD.data$deltaPS <- deltaPS <- deltaPS$deltaPS
+
+
+################################################################################
+##----->> DAS genes,DE and DTU transcripts
+batch.effect <- genes_batch$W
+#batch.effect <- NULL ## if has no batch effects
+design <- condition2design(condition = metatable_new$label,
+                           batch.effect = batch.effect)
+
+################################################################################
+if(DE_pipeline == 'limma'){
+##----->> limma pipeline
+trans_3D_stat <- limma.pipeline(dge = trans_dge,
+                                 design = design,
+                                 deltaPS = deltaPS,
+                                 contrast = contrast,
+                                 diffAS = T,
+                                 adjust.method = pval_adj_method)
+}
+
+if(DE_pipeline == 'glmQL'){
+##----->> edgeR glmQL pipeline
+trans_3D_stat <- edgeR.pipeline(dge = trans_dge,
+                                 design = design,
+                                 deltaPS = deltaPS,
+                                 contrast = contrast,
+                                 diffAS = T,
+                                 method = 'glmQL',
+                                 adjust.method = pval_adj_method)
+}
+
+if(DE_pipeline == 'glm'){
+##----->> edgeR glm pipeline
+trans_3D_stat <- edgeR.pipeline(dge = trans_dge,
+                                 design = design,
+                                 deltaPS = deltaPS,
+                                 contrast = contrast,
+                                 diffAS = T,
+                                 method = 'glm',
+                                 adjust.method = pval_adj_method)
+}
+## save results
+DDD.data$trans_3D_stat <- trans_3D_stat
+```
+
+## Result summary
+
+After the the 3D analysis, the following information is summarized and will appear at the bottom of the page:
+
+1. The test statistics in different contrast groups, e.g. adjusted p-value and L2F**C.
+2. The number of genes and transcripts with significant expression changes in contrast groups.
+3. The number of up- and down-regulated DE genes and transcripts.
+4. The numbers of genes/transcripts regulated only by transcription (DE), only by alternative splicing (DAS/DTU) and by both transcription and alternative splicing (DE+DAS/DE+DTU).
+These summaries can be filtered, customized and the figures can be saved with specified formats and sizes.
+
+### Significant 3D targets and testing statistics
+```{r}
+################################################################################
+##----->> Summary DE genes
+DE_genes <- summaryDEtarget(stat = genes_3D_stat$DE.stat,
+                              cutoff = c(adj.pval=pval_cut,
+                                         log2FC=l2fc_cut))
+DDD.data$DE_genes <- DE_genes
+
+################################################################################
+## summary DAS genes, DE and DTU trans
+##----->> DE trans
+DE_trans <- summaryDEtarget(stat = trans_3D_stat$DE.stat,
+                              cutoff = c(adj.pval=pval_cut,
+                                         log2FC=l2fc_cut))
+DDD.data$DE_trans <- DE_trans
+
+##----->> DAS genes
+if(DAS_pval_method=='F-test') {
+  DAS.stat <- trans_3D_stat$DAS.F.stat
+} else {
+  DAS.stat <- trans_3D_stat$DAS.Simes.stat
+}
+
+lfc <- genes_3D_stat$DE.lfc
+lfc <- reshape2::melt(as.matrix(lfc))
+colnames(lfc) <- c('target','contrast','log2FC')
+DAS_genes <- summaryDAStarget(stat = DAS.stat,
+                                lfc = lfc,
+                                cutoff=c(pval_cut,deltaPS_cut))
+DDD.data$DAS_genes <- DAS_genes
+
+##----->> DTU trans
+lfc <- trans_3D_stat$DE.lfc
+lfc <- reshape2::melt(as.matrix(lfc))
+colnames(lfc) <- c('target','contrast','log2FC')
+DTU_trans <- summaryDAStarget(stat = trans_3D_stat$DTU.stat,
+                                lfc = lfc,cutoff = c(adj.pval=pval_cut,
+                                                     deltaPS=deltaPS_cut))
+DDD.data$DTU_trans <- DTU_trans
+
+################################################################################
+## save csv
+write.csv(DE_genes,file=paste0(result.folder,'/DE genes.csv'),row.names = F)
+write.csv(DAS_genes,file=paste0(result.folder,'/DAS genes.csv'),row.names = F)
+write.csv(DE_trans,file=paste0(result.folder,'/DE transcripts.csv'),row.names = F)
+write.csv(DTU_trans,file=paste0(result.folder,'/DTU transcripts.csv'),row.names = F)
+```
+
+### Significant 3D target numbers
+```{r}
+################################################################################
+##----->> target numbers
+DDD_numbers <- summary3Dnumber(DE_genes = DE_genes,
+                                 DAS_genes = DAS_genes,
+                                 DE_trans = DE_trans,
+                                 DTU_trans=DTU_trans,
+                                 contrast = contrast)
+DDD_numbers
+write.csv(DDD_numbers,file=paste0(result.folder,'/DE DAS DTU numbers.csv'),
+          row.names = F)
+DDD.data$DDD_numbers <- DDD_numbers
+################################################################################
+##----->> DE vs DAS
+DEvsDAS_results <- DEvsDAS(DE_genes = DE_genes,
+                           DAS_genes = DAS_genes,
+                           contrast = contrast)
+DEvsDAS_results
+DDD.data$DEvsDAS_results <- DEvsDAS_results
+write.csv(DEvsDAS_results,file=paste0(result.folder,'/DE vs DAS gene number.csv'),
+          row.names = F)
+
+
+################################################################################
+##----->> DE vs DTU
+DEvsDTU_results <- DEvsDTU(DE_trans = DE_trans,
+                           DTU_trans = DTU_trans,
+                           contrast = contrast)
+DEvsDTU_results
+DDD.data$DEvsDTU_results <- DEvsDTU_results
+write.csv(DEvsDTU_results,file=paste0(result.folder,'/DE vs DTU transcript number.csv'),row.names = F)
+```
+
+## Make plot
+### Up- and down- regulation
+```{r}
+################################################################################
+##----->> DE genes
+idx <- factor(DE_genes$contrast,levels = contrast)
+targets <-  split(DE_genes,idx)
+data2plot <- lapply(contrast,function(i){
+  if(nrow(targets[[i]])==0){
+    x <- data.frame(contrast=i,regulation=c('down-regulated','up-regulated'),number=0)
+  } else {
+    x <- data.frame(contrast=i,table(targets[[i]]$up.down))
+    colnames(x) <- c('contrast','regulation','number')
+  }
+  x
+})
+data2plot <- do.call(rbind,data2plot)
+g.updown <- plotUpdown(data2plot,plot.title = 'DE genes',contrast = contrast)
+print(g.updown)
+
+### save to figure
+png(paste0(figure.folder,'/DE genes up and down regulation numbers.png'),
+    width = length(contrast)*8.5/2.54,10/2.54,units = 'in',res = 300)
+print(g.updown)
+dev.off()
+
+pdf(paste0(figure.folder,'/DE genes up and down regulation numbers.pdf'),
+    width = length(contrast)*8.5/2.54,10/2.54)
+print(g.updown)
+dev.off()
+
+################################################################################
+##----->> DE trans
+idx <- factor(DE_trans$contrast,levels = contrast)
+targets <-  split(DE_trans,idx)
+data2plot <- lapply(contrast,function(i){
+  if(nrow(targets[[i]])==0){
+    x <- data.frame(contrast=i,regulation=c('down-regulated','up-regulated'),number=0)
+  } else {
+    x <- data.frame(contrast=i,table(targets[[i]]$up.down))
+    colnames(x) <- c('contrast','regulation','number')
+  }
+  x
+})
+data2plot <- do.call(rbind,data2plot)
+g.updown <- plotUpdown(data2plot,plot.title = 'DE trans',contrast = contrast)
+print(g.updown)
+
+### save to figure
+png(paste0(figure.folder,'/DE transcripts up and down regulation numbers.png'),
+    width = length(contrast)*8.5/2.54,10/2.54,units = 'in',res = 300)
+print(g.updown)
+dev.off()
+
+pdf(paste0(figure.folder,'/DE transcripts up and down regulation numbers.pdf'),
+    width = length(contrast)*8.5/2.54,10/2.54)
+print(g.updown)
+dev.off()
+```
+
+### Volcano plot
+
+```{r}
+top.n <- 10
+size <- 1
+col0 <- 'black'
+col1 <- 'red'
+idx <- c('DE genes','DAS genes','DE transcripts','DTU transcripts')
+title.idx <- c(paste0("Volcano plot: DE genes (Low expression filtered; \nAdjusted p<",
+                      pval_cut,'; |L2FC|>=',l2fc_cut,'; Labels: top ',
+                      top.n,' distance to (0,0))'),
+               paste0("Volcano plot: DAS genes (Low expression filtered; \nAdjusted p<",
+                      pval_cut,'; |MaxdeltaPS|>=',deltaPS_cut,'; Labels: top ',
+                      top.n,' distance to (0,0))'),
+               paste0("Volcano plot: DE transcripts (Low expression filtered; \nAdjusted p<",
+                      pval_cut,'; |L2FC|>=',l2fc_cut,'; Labels: top ',
+                      top.n,' distance to (0,0))'),
+               paste0("Volcano plot: DTU transcripts (Low expression filtered; \nAdjusted p<",
+                      pval_cut,'; |deltaPS|>=',deltaPS_cut,'; Labels: top ',
+                      top.n,' distance to (0,0))')
+)
+names(title.idx) <- idx
+g <- lapply(idx,function(i){
+  if(i=='DE genes'){
+    DDD.stat <- genes_3D_stat$DE.stat
+    data2plot <- data.frame(target=DDD.stat$target,
+                            contrast=DDD.stat$contrast,
+                            x=DDD.stat$log2FC,
+                            y=-log10(DDD.stat$adj.pval))
+    data2plot$significance <- 'Not significant'
+    data2plot$significance[DDD.stat$adj.pval< pval_cut & 
+                             abs(DDD.stat$log2FC)>=l2fc_cut] <- 'Significant'
+    q <- plotVolcano(data2plot = data2plot,xlab = 'log2FC of genes',ylab='-log10(FDR)',
+                     title = title.idx[i],
+                     col0 = col0,col1 = col1,size = size,top.n = top.n)
+  }
+  
+  if(i=='DAS genes'){
+    if(DAS_pval_method=='F-test')
+      DDD.stat <- trans_3D_stat$DAS.F.stat else DDD.stat <- trans_3D_stat$DAS.simes.stat
+      data2plot <- data.frame(target=DDD.stat$target,
+                              contrast=DDD.stat$contrast,
+                              x=DDD.stat$maxdeltaPS,
+                              y=-log10(DDD.stat$adj.pval))
+      data2plot$significance <- 'Not significant'
+      data2plot$significance[DDD.stat$adj.pval< pval_cut & 
+                               abs(DDD.stat$maxdeltaPS)>=deltaPS_cut] <- 'Significant'
+      q <- plotVolcano(data2plot = data2plot,
+                       xlab = 'MaxdeltaPS of transcripts in each gene',ylab='-log10(FDR)',
+                       title = title.idx[i],col0 = col0,col1 = col1,size = size,
+                       top.n = top.n)
+  }
+  
+  if(i=='DE transcripts'){
+    DDD.stat <- trans_3D_stat$DE.stat
+    data2plot <- data.frame(target=DDD.stat$target,
+                            contrast=DDD.stat$contrast,
+                            x=DDD.stat$log2FC,
+                            y=-log10(DDD.stat$adj.pval))
+    data2plot$significance <- 'Not significant'
+    data2plot$significance[DDD.stat$adj.pval< pval_cut & 
+                             abs(DDD.stat$log2FC)>=l2fc_cut] <- 'Significant'
+    q <- plotVolcano(data2plot = data2plot,xlab = 'log2FC of transcripts',
+                     ylab='-log10(FDR)',title = title.idx[i],
+                     col0 = col0,col1 = col1,size = size,top.n = top.n)
+  }
+  
+  if(i=='DTU transcripts'){
+    DDD.stat <- trans_3D_stat$DTU.stat 
+    data2plot <- data.frame(target=DDD.stat$target,
+                            contrast=DDD.stat$contrast,
+                            x=DDD.stat$deltaPS,
+                            y=-log10(DDD.stat$adj.pval))
+    data2plot$significance <- 'Not significant'
+    data2plot$significance[DDD.stat$adj.pval< pval_cut & 
+                             abs(DDD.stat$deltaPS)>=deltaPS_cut] <- 'Significant'
+    q <- plotVolcano(data2plot = data2plot,
+                     xlab = 'deltaPS of transcripts',ylab='-log10(FDR)',
+                     title = title.idx[i],
+                     col0 = col0,col1 = col1,size = size,top.n = top.n)
+  }
+  q
+})
+names(g) <- idx
+
+######################################################################
+##----->> save plot
+lapply(names(g),function(i){
+  message(i)
+  png(paste0(figure.folder,'/',i,' volcano plot.png'),
+      width = 10,height = 6,units = 'in',
+      res = 150)
+  print(g[[i]])
+  dev.off()
+  
+  pdf(paste0(figure.folder,'/',i,' volcano plot.pdf'),
+      width = 10,height = 6)
+  print(g[[i]])
+  dev.off()
+})
+```
+
+### Flow chart
+
+```{r}
+################################################################################
+##----->> DE vs DAS genes
+DE.genes <- unique(DE_genes$target)
+DAS.genes <- unique(DAS_genes$target)
+genes.flow.chart <- function(){
+  plotFlowChart(expressed =target_high$genes_high,
+                x = DE.genes,
+                y = DAS.genes,
+                type = 'genes',
+                pval.cutoff = pval_cut,lfc.cutoff = l2fc_cut,
+                deltaPS.cutoff = deltaPS_cut)
+}
+genes.flow.chart()
+
+
+png(filename = paste0(figure.folder,'/Union set DE genes vs DAS genes.png'),
+    width = 22/2.54,height = 13/2.54,units = 'in',res = 300)
+genes.flow.chart()
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Union set DE genes vs DAS genes.pdf'),
+    width = 22/2.54,height = 13/2.54)
+genes.flow.chart()
+dev.off()
+
+################################################################################
+##----->> DE vs DTU transcripts
+DE.trans<- unique(DE_trans$target)
+DTU.trans <- unique(DTU_trans$target)
+
+trans.flow.chart <- function(){
+  plotFlowChart(expressed = target_high$trans_high, 
+                x = DE.trans, 
+                y = DTU.trans, 
+                type = 'transcripts', 
+                pval.cutoff = pval_cut,
+                lfc.cutoff = l2fc_cut,
+                deltaPS.cutoff = deltaPS_cut)
+}
+
+trans.flow.chart()
+
+png(filename = paste0(figure.folder,'/Union set DE transcripts vs DTU transcripts.png'),
+    width = 22/2.54,height = 13/2.54,units = 'in',res = 300)
+trans.flow.chart()
+dev.off()
+
+pdf(file = paste0(figure.folder,'/Union set DE transcripts vs DTU transcripts.pdf'),
+    width = 22/2.54,height = 13/2.54)
+trans.flow.chart()
+dev.off()
+```
+
+### Comparisons between contrast groups
+
+```{r}
+################################################################################
+##----->> DE genes
+contrast2plot <- c("Desmoid-Normal")
+#contrast_pw
+targets <- lapply(contrast2plot,function(i){
+  subset(DE_genes,contrast==i)$target
+})
+names(targets) <- contrast2plot
+
+png(filename = paste0(figure.folder,'/DE genes comparisions between contrast groups.png'), width = 465, height = 225, units='mm', res = 300)
+
+g <- plotEulerDiagram(x = targets)
+grid.arrange(g,top=textGrob('DE genes', gp=gpar(cex=1.2)))
+dev.off()
+
+################################################################################
+##----->> DAS genes
+
+targets <- lapply(contrast2plot,function(i){
+  subset(DAS_genes,contrast==i)$target
+})
+names(targets) <- contrast2plot
+
+png(filename = paste0(figure.folder,'/DAS genes comparisions between contrast groups.png'), width = 465, height = 225, units='mm', res = 300)
+g <- plotEulerDiagram(x = targets)
+grid.arrange(g,top=textGrob('DAS genes', gp=gpar(cex=1.2)))
+dev.off()
+################################################################################
+##----->> DE transcripts
+
+targets <- lapply(contrast2plot,function(i){
+  subset(DE_trans,contrast==i)$target
+})
+names(targets) <- contrast2plot
+
+png(filename = paste0(figure.folder,'/DE transcripts comparisions between contrast groups.png'), width = 465, height = 225, units='mm', res = 300)
+g <- plotEulerDiagram(x = targets)
+grid.arrange(g,top=textGrob('DE transcripts', gp=gpar(cex=1.2)))
+dev.off()
+################################################################################
+##----->> DTU transcripts
+
+targets <- lapply(contrast2plot,function(i){
+  subset(DTU_trans,contrast==i)$target
+})
+names(targets) <- contrast2plot
+
+png(filename = paste0(figure.folder,'/DTU transcripts comparisions between contrast groups.png'), width = 465, height = 225, units='mm', res = 300)
+g <- plotEulerDiagram(x = targets)
+grid.arrange(g,top=textGrob('DTU transcripts', gp=gpar(cex=1.2)))
+dev.off()
+```
+### Comparison of transcription and AS targets
+```{r}
+contrast.idx <- contrast[1]
+################################################################################
+##----->> DE vs DAS genes
+x <- unlist(DEvsDAS_results[DEvsDAS_results$Contrast==contrast.idx,-1])
+if(length(x)==0){
+  message('No DE and/or DAS genes')
+} else {
+  names(x) <- c('DE','DE&DAS','DAS')
+  g <- plotEulerDiagram(x = x,fill = gg.color.hue(2))
+  g
+  grid.arrange(g,top=textGrob('DE vs DAS genes', gp=gpar(cex=1.2)))
+}
+
+################################################################################
+##----->> DE vs DTU transcripts
+x <- unlist(DEvsDTU_results[DEvsDTU_results$Contrast==contrast.idx,-1])
+if(length(x)==0){
+  message('No DE and/or DTU transcripts')
+} else {
+  names(x) <- c('DE','DE&DTU','DTU')
+  g <- plotEulerDiagram(x = x,fill = gg.color.hue(2))
+  g
+  grid.arrange(g,top=textGrob('DE vs DTU transcripts', gp=gpar(cex=1.2)))
+}
+```
+
+# Functional plot
+
+## Heatmap of 3D targets
+
+```{r}
+################################################################################
+##----->> DE genes
+targets <- unique(DE_genes$target)
+data2heatmap <- txi_genes$abundance[targets,]
+column_title <- paste0(length(targets),' DE genes')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+hc.dist <- dist(data2plot,method = dist_method)
+hc <- fastcluster::hclust(hc.dist,method = cluster_method)
+clusters <- cutree(hc, k = cluster_number)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+### save the target list in each cluster to result folder
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+write.csv(x,file=paste0(result.folder,'/Target in each cluster heatmap ', column_title,'.csv'),
+          row.names = F)
+###############################
+
+g <- Heatmap(as.matrix(data2plot), name = 'Z-scores', 
+             cluster_rows = TRUE,
+             clustering_method_rows=cluster_method,
+             row_dend_reorder = T,
+             show_row_names = FALSE, 
+             show_column_names = ifelse(ncol(data2plot)>10,F,T),
+             cluster_columns = FALSE,
+             split=clusters,
+             column_title= column_title)
+
+draw(g,column_title='Conditions',column_title_side = "bottom")
+
+### save to figure
+png(paste0(figure.folder,'/Heatmap DE genes.png'),
+    width = pmax(10,1*length(unique(metatable$label)))/2.54,height = 20/2.54,
+    units = 'in',res = 300)
+draw(g,column_title='Conditions',column_title_side = "bottom")
+dev.off()
+pdf(paste0(figure.folder,'/Heatmap DE genes.pdf'),
+    width = pmax(10,1*length(unique(metatable$label)))/2.54,height = 20/2.54)
+draw(g,column_title='Conditions',column_title_side = "bottom")
+dev.off()
+
+
+```
+## How to change the stable ENSEMBL ID to ENSEMBL ID
+```{r}
+# Add gene_ids_version
+SymbolList <- read.csv("geneid.csv", header=F, fileEncoding = 'UTF-8-BOM')$V1
+as.character(SymbolList)
+
+library(stringr)
+trimmed_list <- str_replace(SymbolList,
+                            pattern = ".[0-9]+$",
+                            replacement = "")
+#trimmed_list
+
+#Export the trimmed list
+as.data.frame(trimmed_list)
+write.csv(trimmed_list, "trimmed_geneid.csv")
+
+```
+
+## Adding gene annotation
+```{r}
+library(org.Hs.eg.db)
+CPMdata <- DE_genes
+targets <- unique(SymbolList)
+data4heatmap <- data.after[targets,]
+
+# Remove version info from the ENSEMBL ID
+library(stringr)
+row.names(data4heatmap) <- str_replace(row.names(data4heatmap),
+                            pattern = ".[0-9]+$",
+                            replacement = "")
+
+row.names(data4heatmap) <- mapIds(org.Hs.eg.db, keys = row.names(data4heatmap), keytype = "ENSEMBL", column = "SYMBOL")
+
+# Remove missing entrezID genes
+data4heatmap <- data4heatmap[complete.cases(row.names(data4heatmap)),]
+
+# Sort top40 from adjusted p-values and then log2FC
+#o <- order(CPMdata$adj.pval)
+#CPMdata <- CPMdata[o[1:40],]
+#o2 <- order(CPMdata$log2FC)
+#CPMdata <- CPMdata[o2[1:40],]
+
+
+
+```
+
+## Heat map
+```{r}
+targets <- unique(row.names(data4heatmap))
+data2heatmap <- txi_genes$abundance[targets,]
+column_title <- paste0(length(targets),' DE genes')
+data2plot <- rowmean(x = t(data2heatmap),
+                     group = metatable$label,
+                     reorder = F)
+data2plot <- t(scale(data2plot))
+hc.dist <- dist(data2plot,method = dist_method)
+hc <- fastcluster::hclust(hc.dist,method = cluster_method)
+clusters <- cutree(hc, k = cluster_number)
+clusters <- reorderClusters(clusters = clusters,dat = data2plot)
+
+### save the target list in each cluster to result folder
+x <- split(names(clusters),clusters)
+x <- lapply(names(x),function(i){
+  data.frame(Clusters=i,Targets=x[[i]])
+})
+x <- do.call(rbind,x)
+colnames(x) <- c('Clusters','Targets')
+
+###############################
+
+g <- Heatmap(as.matrix(data2plot), name = 'Z-scores', 
+             cluster_rows = TRUE,
+             clustering_method_rows=cluster_method,
+             row_dend_reorder = T,
+             show_row_names = FALSE, 
+             show_column_names = ifelse(ncol(data2plot)>10,F,T),
+             cluster_columns = FALSE,
+             split=clusters,
+             column_title= column_title)
+
+draw(g,column_title='Conditions',column_title_side = "bottom")
+
+```
+
+## Profile plot
+```{r}
+################################################################################
+##----->> generate annotation of DE and/or DAS, DE and/or DTU
+DE.genes <- unique(DE_genes$target)
+DAS.genes <- unique(DAS_genes$target)
+DE.trans <- unique(DE_trans$target)
+DTU.trans <- unique(DTU_trans$target)
+
+genes.ann <- set2(DE.genes,DAS.genes)
+names(genes.ann) <- c('DEonly','DE&DAS','DASonly')
+genes.ann <- plyr::ldply(genes.ann,cbind)[,c(2,1)]
+colnames(genes.ann) <- c('target','annotation')
+
+
+trans.ann <- set2(DE.trans,DTU.trans)
+names(trans.ann) <- c('DEonly','DE&DTU','DTUonly')
+trans.ann <- plyr::ldply(trans.ann,cbind)[,c(2,1)]
+colnames(trans.ann) <- c('target','annotation')
+
+################################################################################
+##give a gene name
+gene <- 'ENSG00000142082.15'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_SIRT3.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_SIRT3.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000286797.1'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_kvsn_2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_kvsn_2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000102921.8'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_N4BP1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_N4BP1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000069869.16'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_NEDD4.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_NEDD4.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000062194.16'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_kvsn_5.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_kvsn_5.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000158321.18'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_AUTS2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_AUTS2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000152377.14'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_SPOCK1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_SPOCK1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000129009.13'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_Isoform_ISLR.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_Isoform_ISLR.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000250722.6'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_isoform_SEPP1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_isoform_plot_SEPP1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000096717.12'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_isoform_SIRT1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_isoform_plot_SIRT1.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000112096.18'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_isoform_SOD2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_isoform_plot_SOD2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+
+```{r}
+################################################################################
+##give a gene name
+gene <- 'ENSG00000171791.13'
+##----->> profile plot of TPM or read counts
+g.pr <- plotAbundance(data.exp = txi_trans$abundance[target_high$trans_high,],
+                       gene = gene,
+                       mapping = mapping[target_high$trans_high,],
+                       genes.ann = genes.ann,
+                       trans.ann = trans.ann,
+                       trans.expressed = NULL,
+                       reps = metatable$label,
+                       y.lab = 'TPM')
+g.pr
+png(paste0(figure.folder,'/profileplot_isoform_Bcl2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.pr)
+dev.off()
+################################################################################
+##----->> PS plot
+g.ps <- plotPS(data.exp = txi_trans$abundance[target_high$trans_high,],
+                gene = gene,
+                mapping = mapping[target_high$trans_high,],
+                genes.ann = genes.ann,
+                trans.ann = trans.ann,
+                trans.expressed = NULL,
+                reps = metatable$label,
+                y.lab = 'PS')
+g.ps
+png(paste0(figure.folder,'/PS_isoform_plot_Bcl2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g.ps)
+dev.off()
+```
+
+## GO annotation plot of DTU genes
+To make the plot, users must provide GO annotation table in csv file, with first column of "Category" (i.e. CC, BP and MF), second column of GO "Term" and the remaining columns of statistics of significance.
+
+```{r}
+################################################################################
+##----->> DE genes
+go.table1 <- readr::read_csv(paste0(input.folder,
+                                   '/35_C10.csv'))
+
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"`-log10(FDR)")
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1, col.idx = '-log10(FDR)',go.text.cut = 70,
+            plot.title = 'GO annotation: DAS gene_cluster10')
+
+### save to figure
+png(paste0(figure.folder,'/DAS_cluster10.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DAS_cluster10.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+```
+
+
+## GO annotation plot of DE/DAS genes
+To make the plot, users must provide GO annotation table in csv file, with first column of "Category" (i.e. CC, BP and MF), second column of GO "Term" and the remaining columns of statistics of significance.
+
+```{r}
+################################################################################
+##----->> DE genes
+go.table1 <- readr::read_csv(paste0(input.folder,
+                                   '/35_C10.csv'))
+
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"`-log10(FDR)")
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1, col.idx = '-log10(FDR)',go.text.cut = 70,
+            plot.title = 'GO annotation: DAS gene_cluster10')
+
+### save to figure
+png(paste0(figure.folder,'/DAS_cluster10.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DAS_cluster10.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+```
+
+```{r}
+################################################################################
+##----->> DE genes
+go.table1 <- readr::read_csv(paste0(input.folder,
+                                   '/DE_KvsN_down_GO_top15.csv'))
+
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"-log10(FDR)")
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1, col.idx = '-log10(FDR)',go.text.cut = 70,
+            plot.title = 'GO annotation: DE downregulated genes in Keloids vs Normal')
+
+### save to figure
+png(paste0(figure.folder,'/DE downregulated genes GO annotation plot_kvsn.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DE downregulated genes GO annotation plot_kvsn.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+
+```
+```{r}
+################################################################################
+##----->> DE genes
+go.table1 <- readr::read_csv(paste0(input.folder,
+                                   '/DE_TAvsUT_up_GO_top15.csv'))
+
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"`-log10(FDR)")
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1, col.idx = '-log10(FDR)',go.text.cut = 70,
+            plot.title = 'GO annotation: DE upregulated genes in TA vs UT')
+
+### save to figure
+png(paste0(figure.folder,'/DE upregulated genes GO annotation plot_tavsut.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DE upregulated genes GO annotation plot_tavsut.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+```
+
+```{r}
+################################################################################
+##----->> DE genes
+go.table1 <- readr::read_csv(paste0(input.folder,
+                                   '/DE_TAvsUT_down_GO_top15.csv'))
+
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"`-log10(FDR)")
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1, col.idx = '-log10(FDR)',go.text.cut = 70,
+            plot.title = 'GO annotation: DE downregulated genes in TA vs UT')
+
+### save to figure
+png(paste0(figure.folder,'/DE downregulated genes GO annotation plot_tavsut.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DE downregulated genes GO annotation plot_tavsut.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+
+```
+```{r}
+################################################################################
+##----->> DAS genes
+go.table1 <- readr::read_csv(paste0(input.folder,'/DAS KvsN_up_GO.csv'))
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"`-log10(FDR)")
+
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1,col.idx = '-log10(FDR)',go.text.cut = 70,
+         plot.title = 'GO annotation: DAS genes upregulated in Keloids vs Normal')
+
+### save to figure
+png(paste0(figure.folder,'/DAS upregulated genes GO annotation plot_kvsn.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DAS upregulated genes GO annotation plot_kvsn.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+```
+
+```{r}
+################################################################################
+##----->> DAS genes
+go.table1 <- readr::read_csv(paste0(input.folder,'/DAS KvsN_down_GO.csv'))
+go.table1 <- go.table1[!is.na(go.table1$Category),]
+rename <- c('ID', 'Name')
+go.table1$"-log10(FDR)" <- -log10(go.table1$"`-log10(FDR)")
+
+##arrange information in the table
+go.table1$Term <- as.vector(interaction(go.table1[,rename]))
+keep = c('Category', 'Term', '-log10(FDR)')
+go.table1 <- go.table1[,keep]
+
+g <- plotGO(go.table = go.table1,col.idx = '-log10(FDR)',go.text.cut = 70,
+         plot.title = 'GO annotation: DAS genes downregulated in Keloids vs Normal')
+
+### save to figure
+png(paste0(figure.folder,'/DAS downregulated genes GO annotation plot_kvsn.png'),
+    width = 40/2.54,height = 21/2.54,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+pdf(paste0(figure.folder,'/DAS downregulated genes GO annotation plot_kvsn.pdf'),
+    width = 40/2.54,height = 21/2.54)
+print(g)
+dev.off()
+```
+
+## Isoform switch analysis
+### Generate switch scores
+```{r}
+
+contrast <- contrast_pw
+condition <- metatable$label
+DAS_genes <- DAS_genes
+TSIS.mapping.full <- mapping
+rownames(TSIS.mapping.full) <- TSIS.mapping.full$TXNAME
+TSIS.mapping.full <- TSIS.mapping.full[target_high$trans_high,]
+
+###################################################################
+##----->> isoform swtich analysis
+if(TSISorisokTSP == 'isokTSP'){
+  message('Peform isokTSP analysis ...')
+  if(is.null(contrast) | is.null(condition) | is.null(metatable) | 
+     is.null(DAS_genes) | is.null(TSIS.mapping.full) | 
+     is.null(trans_TPM))
+    return(NULL)
+  
+  scores.results <- list()
+  for(i in seq_along(contrast)){
+    contrast.idx <- contrast[i]
+    metatable.idx <- unlist(strsplit(contrast.idx,'-'))
+    if(any((metatable.idx %in% condition)==F)){
+      message(paste0('IS analysis of contrast group: ',contrast.idx, ' is not applied'))
+      next
+    }
+    
+    message(paste0('IS analysis of contrast group: ',contrast.idx))
+    col.idx <- which(condition %in% metatable.idx)
+    DAS.genes <- unique(DAS_genes$target[DAS_genes$contrast==contrast.idx])
+    if(length(DAS.genes)==0)
+      next
+    TSIS.mapping <- TSIS.mapping.full[TSIS.mapping.full$GENEID %in% DAS.genes,]
+    TSIS.mapping <- TSIS.mapping[,c('GENEID','TXNAME')]
+    TSIS.tpm <- trans_TPM[TSIS.mapping$TXNAME,col.idx]
+    times <- metatable$label[col.idx]
+    
+    scores<-iso.switch.pairwise(data.exp=TSIS.tpm,
+                                mapping = TSIS.mapping,
+                                times=times,
+                                rank=F,
+                                min.difference = 1,
+                                spline = F,
+                                verbose = T,shiny = F)
+    
+    scores <- data.frame(contrast=contrast.idx,scores,row.names = NULL,check.names = F)
+    scores.results <- c(scores.results,setNames(list(scores),contrast.idx))
+  }
+  scores.results <- do.call(rbind,scores.results)
+  rownames(scores.results) <- NULL
+  scores <- scores.results
+} else {
+  DAS.genes <- unique(DAS_genes$target)
+  if(length(DAS.genes)==0)
+    next
+  TSIS.mapping <- TSIS.mapping.full[TSIS.mapping.full$GENEID %in% DAS.genes,]
+  TSIS.mapping <- TSIS.mapping[,c('GENEID','TXNAME')]
+  TSIS.tpm <- trans_TPM[TSIS.mapping$TXNAME,]
+  times <- metatable$label
+  scores.results <- iso.switch(data.exp = TSIS.tpm,
+                                     mapping = TSIS.mapping,
+                                     times=times,
+                                     rank=F,
+                                     min.t.points = 1,
+                                     min.difference = 1,
+                                     spline = (method_intersection == 'Spline'),
+                                     spline.df = spline_df,
+                                     verbose = T)
+  # scores.results <- roundDF(scores,digits = 6)
+  
+  rownames(scores.results) <- NULL
+  scores <- scores.results
+}
+
+###################################################################
+##----->> filter
+scores.filtered <-score.filter(
+  scores = scores,
+  prob.cutoff = TSIS_prob_cut,
+  diff.cutoff = TSIS_diff_cut,
+  t.points.cutoff = ifelse(TSISorisokTSP == 'isokTSP',1,TSIS_time_point_cut),
+  pval.cutoff = 0.05,
+  FDR.cutoff = TSIS_adj_pval_cut,
+  cor.cutoff = TSIS_cor_cut,
+  data.exp = NULL,
+  mapping = NULL,
+  sub.isoform.list = NULL,
+  sub.isoform = F,
+  max.ratio = F,
+  x.value.limit = c(1,length(unique(metatable$label)))
+)
+DDD.data$scores_filtered <- scores.filtered
+```
+
+### Isoform switch plot
+## Switch numbers
+```{r}
+x <- data.frame(table(factor(scores.filtered$contrast,levels = contrast_pw)))
+g <- plotPWISnumber(x)
+g
+
+png(paste0(figure.folder,'/Isoform switch number.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+
+# Save the isoform switch information
+write.csv(scores.filtered, file=paste0(result.folder,'/isoform_switch.csv'),
+          row.names = F)
+
+```
+
+### Isoform switch plot
+
+```{r}
+# SOD2
+
+iso1 <- 'ENST00000538183.7'
+iso2 <- 'ENST00000367055.8'
+scores2plot <- scores.filtered
+times0 <- metatable$label
+data2plot <- trans_TPM[c(iso1,iso2),]
+select.contrast <- contrast[1]
+
+if(TSISorisokTSP == 'isokTSP'){
+  if(!('contrast' %in% colnames(scores2plot))){
+    message('Please select correct type of isoform switch.')
+    return(NULL)
+  }
+  contrast.idx <- select.contrast
+  contrast.idx <- unlist(strsplit(contrast.idx,'-'))[2:1]
+  times.idx <- which(times0 %in% contrast.idx)
+  times0 <- times0[times.idx]
+  data2plot <- data2plot[,times.idx]
+  scores2plot <- scores2plot[scores2plot$contrast==select.contrast,]
+}
+
+if(!is.numeric(times0)){
+  times <- as.numeric(factor(times0,levels = unique(times0)))
+  xlabs <- paste0(unique(times0),' (x=',unique(times),')')
+} else {
+  times <- times0
+  xlabs <- unique(times0)
+}
+
+g <- plotTSIS(data2plot = data2plot,
+              scores = scores2plot,
+              iso1 = iso1,
+              ribbon.plot = F,
+              iso2 = iso2,
+              y.lab = 'TPM',
+              spline = F,
+              spline.df = 9,
+              times = times,
+              errorbar.width = 0.03,
+              x.lower.boundary = ifelse(is.numeric(times),min(times),1),
+              x.upper.boundary = ifelse(is.numeric(times),max(times),
+                                        length(unique(times))),
+              show.scores = T,
+              show.region = F)+
+  scale_x_continuous(breaks = unique(times),labels = xlabs) + xlab("Contrast")
+g
+
+png(paste0(figure.folder,'/Isoform_SOD2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+```
+```{r}
+# Keloids vs Normal in UT (2)
+
+iso1 <- 'ENST00000655441.1'
+iso2 <- 'ENST00000671641.1'
+scores2plot <- scores.filtered
+times0 <- metatable$label
+data2plot <- trans_TPM[c(iso1,iso2),]
+select.contrast <- contrast[1]
+
+if(TSISorisokTSP == 'isokTSP'){
+  if(!('contrast' %in% colnames(scores2plot))){
+    message('Please select correct type of isoform switch.')
+    return(NULL)
+  }
+  contrast.idx <- select.contrast
+  contrast.idx <- unlist(strsplit(contrast.idx,'-'))[2:1]
+  times.idx <- which(times0 %in% contrast.idx)
+  times0 <- times0[times.idx]
+  data2plot <- data2plot[,times.idx]
+  scores2plot <- scores2plot[scores2plot$contrast==select.contrast,]
+}
+
+if(!is.numeric(times0)){
+  times <- as.numeric(factor(times0,levels = unique(times0)))
+  xlabs <- paste0(unique(times0),' (x=',unique(times),')')
+} else {
+  times <- times0
+  xlabs <- unique(times0)
+}
+
+g <- plotTSIS(data2plot = data2plot,
+              scores = scores2plot,
+              iso1 = iso1,
+              ribbon.plot = F,
+              iso2 = iso2,
+              y.lab = 'TPM',
+              spline = F,
+              spline.df = 9,
+              times = times,
+              errorbar.width = 0.03,
+              x.lower.boundary = ifelse(is.numeric(times),min(times),1),
+              x.upper.boundary = ifelse(is.numeric(times),max(times),
+                                        length(unique(times))),
+              show.scores = T,
+              show.region = F)+
+  scale_x_continuous(breaks = unique(times),labels = xlabs) + xlab("Contrast")
+g
+
+png(paste0(figure.folder,'/Isoform_kvsn_2.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+```
+```{r}
+# Keloids vs Normal in UT (3)
+
+iso1 <- 'ENST00000393868.7'
+iso2 <- 'ENST00000484365.1'
+scores2plot <- scores.filtered
+times0 <- metatable$label
+data2plot <- trans_TPM[c(iso1,iso2),]
+select.contrast <- contrast[1]
+
+if(TSISorisokTSP == 'isokTSP'){
+  if(!('contrast' %in% colnames(scores2plot))){
+    message('Please select correct type of isoform switch.')
+    return(NULL)
+  }
+  contrast.idx <- select.contrast
+  contrast.idx <- unlist(strsplit(contrast.idx,'-'))[2:1]
+  times.idx <- which(times0 %in% contrast.idx)
+  times0 <- times0[times.idx]
+  data2plot <- data2plot[,times.idx]
+  scores2plot <- scores2plot[scores2plot$contrast==select.contrast,]
+}
+
+if(!is.numeric(times0)){
+  times <- as.numeric(factor(times0,levels = unique(times0)))
+  xlabs <- paste0(unique(times0),' (x=',unique(times),')')
+} else {
+  times <- times0
+  xlabs <- unique(times0)
+}
+
+g <- plotTSIS(data2plot = data2plot,
+              scores = scores2plot,
+              iso1 = iso1,
+              ribbon.plot = F,
+              iso2 = iso2,
+              y.lab = 'TPM',
+              spline = F,
+              spline.df = 9,
+              times = times,
+              errorbar.width = 0.03,
+              x.lower.boundary = ifelse(is.numeric(times),min(times),1),
+              x.upper.boundary = ifelse(is.numeric(times),max(times),
+                                        length(unique(times))),
+              show.scores = T,
+              show.region = F)+
+  scale_x_continuous(breaks = unique(times),labels = xlabs) + xlab("Contrast")
+g
+
+png(paste0(figure.folder,'/Isoform_kvsn_3.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+```
+```{r}
+# Keloids vs Normal in UT (4)
+
+iso1 <- 'ENST00000416784.5'
+iso2 <- 'ENST00000618621.4'
+scores2plot <- scores.filtered
+times0 <- metatable$label
+data2plot <- trans_TPM[c(iso1,iso2),]
+select.contrast <- contrast[1]
+
+if(TSISorisokTSP == 'isokTSP'){
+  if(!('contrast' %in% colnames(scores2plot))){
+    message('Please select correct type of isoform switch.')
+    return(NULL)
+  }
+  contrast.idx <- select.contrast
+  contrast.idx <- unlist(strsplit(contrast.idx,'-'))[2:1]
+  times.idx <- which(times0 %in% contrast.idx)
+  times0 <- times0[times.idx]
+  data2plot <- data2plot[,times.idx]
+  scores2plot <- scores2plot[scores2plot$contrast==select.contrast,]
+}
+
+if(!is.numeric(times0)){
+  times <- as.numeric(factor(times0,levels = unique(times0)))
+  xlabs <- paste0(unique(times0),' (x=',unique(times),')')
+} else {
+  times <- times0
+  xlabs <- unique(times0)
+}
+
+g <- plotTSIS(data2plot = data2plot,
+              scores = scores2plot,
+              iso1 = iso1,
+              ribbon.plot = F,
+              iso2 = iso2,
+              y.lab = 'TPM',
+              spline = F,
+              spline.df = 9,
+              times = times,
+              errorbar.width = 0.03,
+              x.lower.boundary = ifelse(is.numeric(times),min(times),1),
+              x.upper.boundary = ifelse(is.numeric(times),max(times),
+                                        length(unique(times))),
+              show.scores = T,
+              show.region = F)+
+  scale_x_continuous(breaks = unique(times),labels = xlabs) + xlab("Contrast")
+g
+
+png(paste0(figure.folder,'/Isoform_kvsn_4.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+```
+```{r}
+# Keloids vs Normal in UT (5)
+
+iso1 <- 'ENST00000511209.5'
+iso2 <- 'ENST00000264779.6'
+scores2plot <- scores.filtered
+times0 <- metatable$label
+data2plot <- trans_TPM[c(iso1,iso2),]
+select.contrast <- contrast[1]
+
+if(TSISorisokTSP == 'isokTSP'){
+  if(!('contrast' %in% colnames(scores2plot))){
+    message('Please select correct type of isoform switch.')
+    return(NULL)
+  }
+  contrast.idx <- select.contrast
+  contrast.idx <- unlist(strsplit(contrast.idx,'-'))[2:1]
+  times.idx <- which(times0 %in% contrast.idx)
+  times0 <- times0[times.idx]
+  data2plot <- data2plot[,times.idx]
+  scores2plot <- scores2plot[scores2plot$contrast==select.contrast,]
+}
+
+if(!is.numeric(times0)){
+  times <- as.numeric(factor(times0,levels = unique(times0)))
+  xlabs <- paste0(unique(times0),' (x=',unique(times),')')
+} else {
+  times <- times0
+  xlabs <- unique(times0)
+}
+
+g <- plotTSIS(data2plot = data2plot,
+              scores = scores2plot,
+              iso1 = iso1,
+              ribbon.plot = F,
+              iso2 = iso2,
+              y.lab = 'TPM',
+              spline = F,
+              spline.df = 9,
+              times = times,
+              errorbar.width = 0.03,
+              x.lower.boundary = ifelse(is.numeric(times),min(times),1),
+              x.upper.boundary = ifelse(is.numeric(times),max(times),
+                                        length(unique(times))),
+              show.scores = T,
+              show.region = F)+
+  scale_x_continuous(breaks = unique(times),labels = xlabs) + xlab("Contrast")
+g
+
+png(paste0(figure.folder,'/Isoform_kvsn_5.png'),
+    width = 6,height = 4,
+    units = 'in',res = 300)
+print(g)
+dev.off()
+```
+
+# Session info {.unnumbered}
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```
