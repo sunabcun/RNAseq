@@ -26,7 +26,12 @@
     - GTF="../gencode.v34.primary_assembly.annotation.gtf"
   - Generate genome indices:index.sh
   - Mapping to the reference genome: map.sh
-
+ 
+ # 2-2. Align (SALMON)
+ - Quantify abundance and effective transcript lengths
+ - Download transcripts info: gencode.v37.transcripts.fa.gz
+ - Build index: index.sh
+ - Mapping 
 # 3. Post alignment QC
   - flagstat: generate alignment metrics
     - flagstat.sh
