@@ -30,4 +30,4 @@
 # 3. Post alignment QC
   - flagstat: generate alignment metrics
     - flagstat.sh
-  - fastqc + multiqc
+  - fastqc + multiqc: multiqc.sh
