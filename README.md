@@ -14,4 +14,5 @@
     - wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_34/gencode.v34.primary_assembly.annotation.gtf.gz
     - gunzip gencode.v34.primary_assembly.annotation.gtf.gz
     - GTF="../gencode.v34.primary_assembly.annotation.gtf"
-  - Generate genome indices:RNAseq/STAR/index.sh
+  - Generate genome indices:index.sh
+  - Mapping to the reference genome: map.sh
