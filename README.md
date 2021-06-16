@@ -5,6 +5,16 @@
   - To run this, need to have cutadapt and fastq
   - cutadapt: https://cutadapt.readthedocs.io/en/stable/installation.html
           python3 -m pip install --user --upgrade cutadapt
+  - fastqc
+    - wget http://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.11.9.zip
+    - unzip fastqc_v0.11.9.zip
+    - cd FastQC/
+    - chmod 755 fastqc
+    - ./fastqc --help
+  - multiqc: A tool for assembling QC reports is a python package
+    - pip3 install --user multiqc
+    - export PATH=/home/ubuntu/.local/bin:$PATH
+    - python3 -m multiqc --help
 
 # 2. Align (STAR)
   - Index genome for STAR
