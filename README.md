@@ -30,9 +30,30 @@
  # 2-2. Align (SALMON)
  - Quantify abundance and effective transcript lengths
  - Download transcripts info: gencode.v37.transcripts.fa.gz
- - Build index: index.sh
- - Mapping 
+ - Build index: build_index.sh
+ - Align: salmon_align.sh
+
+# 2-3. Align (HISAT2)
+- Download pre-built index
+  - https://daehwankimlab.github.io/hisat2/download/
+- Align: HISAT2align.sh
+- SAMtoBAM conversion: sam_bam_conversion.sh
+- merge bam files for IGV: merge.sh
+- post QC
+- stringtie(ref_guided): stringtie.sh
+- Ballgown for DE: ballgown.sh
+- index bamfiles for HTseq: indexbam.sh
+- HTseq count: Run htseq-count on alignments instead to produce raw counts instead of FPKM/TPM values for differential expression analysis
+  - HT_seq_count.sh
+
 # 3. Post alignment QC
   - flagstat: generate alignment metrics
     - flagstat.sh
   - fastqc + multiqc: multiqc.sh
+
+# 4. DE analysis/isoform analysis/Gene expression plotting
+- Easy to run using Salmon files
+- general_DE_gene_exp_plotting.Rmd
+- R codes were modified from 3DRNAseq and many previous works
+- 3DRNAseq codes were good to modify for isoform analysis and DTU etc.
+  - https://www.biorxiv.org/content/10.1101/656686v1
