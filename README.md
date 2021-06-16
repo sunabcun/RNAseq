@@ -16,7 +16,7 @@
     - export PATH=/home/ubuntu/.local/bin:$PATH
     - python3 -m multiqc --help
 
-# 2. Align (STAR)
+# 2-1. Align (STAR)
   - Index genome for STAR
     - wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_34/GRCh38.primary_assembly.genome.fa.gz
     - gunzip GRCh38.primary_assembly.genome.fa.gz
@@ -26,3 +26,8 @@
     - GTF="../gencode.v34.primary_assembly.annotation.gtf"
   - Generate genome indices:index.sh
   - Mapping to the reference genome: map.sh
+
+# 3. Post alignment QC
+  - flagstat: generate alignment metrics
+    - flagstat.sh
+   
