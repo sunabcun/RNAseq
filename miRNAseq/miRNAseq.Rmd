@@ -1,0 +1,281 @@
+---
+title: "miRNAseq_differential_expression"
+
+output:
+  BiocStyle::html_document
+
+---
+# Load R packages
+```{r}
+library(ggplot2)
+library("pheatmap")
+library(RUVSeq)
+library(vsn)
+library(apeglm)
+library(DESeq2)
+setwd("D:/miRNAseq/DESeq2/HDF_UT_vs_KE_UT")
+
+```
+
+# Set environment
+```{r}
+##save to object
+DDD.data <- list()
+################################################################################
+##----->> Set folders to read and save results
+data.folder <- file.path(getwd(),'data') # for .RData format results
+result.folder <- file.path(getwd(),'result') # for 3D analysis results in csv files
+figure.folder <- file.path(getwd(),'figure')# for figures
+report.folder <- file.path(getwd(),'report')
+
+DDD.data$data.folder <- data.folder
+DDD.data$result.folder <- result.folder
+DDD.data$figure.folder <- figure.folder
+DDD.data$report.folder <- report.folder
+
+if(!file.exists(data.folder))
+  dir.create(path = data.folder,recursive = T)
+if(!file.exists(result.folder))
+  dir.create(path = result.folder,recursive = T)
+if(!file.exists(figure.folder))
+  dir.create(path = figure.folder,recursive = T)
+if(!file.exists(report.folder))
+  dir.create(path = report.folder,recursive = T)
+
+### Set the input data folder
+##----->> folder of input files
+input.folder <- 'miRNAseq_data'
+if(!file.exists(input.folder))
+  dir.create(path = input.folder,recursive = T)
+
+```
+
+
+# Read count matrix
+```{r}
+library("DESeq2")
+setwd("D:/miRNAseq/DESeq2/HDF_UT_vs_KE_UT")
+
+metatable <- read.csv(file.path(getwd(),'counts.tsv'),sep="\t")
+
+coldata <- read.csv('coldata.csv', row.names=1)
+coldata <- coldata[,c("Sample","Groups")]
+coldata$Sample <- factor(coldata$Sample)
+coldata$Groups <- factor(coldata$Groups)
+
+
+dds <- DESeqDataSetFromMatrix(countData = metatable,
+                              colData = coldata,
+                              design = ~ Groups)
+dds
+```
+# Filter the low counts
+```{r}
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+dds
+```
+# Note on factor levels
+```{r}
+dds$Groups <- factor(dds$Groups, levels = c("HDF","Keloids"))
+dds <- DESeq(dds)
+res <- results(dds)
+res
+```
+
+# Removing hidden batch effects
+## Using RUV with DESeq2
+We can also use the RUV method in the RUVSeq package to detect the hidden batch effects.
+We can use the RUVg function to estimate factors of unwanted variation, analogous to SVA’s surrogate variables. A difference compared to the SVA procedure above, is that we first would run DESeq and results to obtain the p-values for the analysis without knowing about the batches, e.g. just ~ dex. Supposing that we have this results table res, we then pull out a set of empirical control genes by looking at the genes that do not have a small p-value.
+```{r}
+set <- newSeqExpressionSet(counts(dds))
+idx  <- rowSums(counts(set) > 5) >= 2
+set  <- set[idx, ]
+set <- betweenLaneNormalization(set, which="upper")
+not.sig <- rownames(res)[which(res$pvalue > .1)]
+empirical <- rownames(set)[ rownames(set) %in% not.sig ]
+set <- RUVg(set, empirical, k=2)
+pData(set)
+```
+As before, if we wanted to control for these factors, we simply add them to the DESeqDataSet and to the design:
+
+
+```{r}
+ddsruv <- dds
+ddsruv$W1 <- set$W_1
+ddsruv$W2 <- set$W_2
+design(ddsruv) <- ~ W1 + W2 + Groups
+```
+
+
+# Differential expression analysis
+The standard differential expression analysis steps are wrapped into a single function, DESeq. The estimation steps performed by this function are described below, in the manual page for ?DESeq and in the Methods section of the DESeq2 publication (Love, Huber, and Anders 2014).
+
+Results tables are generated using the function results, which extracts a results table with log2 fold changes, p values and adjusted p values. With no additional arguments to results, the log2 fold change and Wald test p value will be for the last variable in the design formula, and if this is a factor, the comparison will be the last level of this variable over the reference level (see previous note on factor levels). However, the order of the variables of the design do not matter so long as the user specifies the comparison to build a results table for, using the name or contrast arguments of results.
+
+Details about the comparison are printed to the console, directly above the results table. The text, condition treated vs untreated, tells you that the estimates are of the logarithmic fold change log2(Keloids/HDF).
+```{r}
+ddsruv <- DESeq(ddsruv)
+res <- results(ddsruv)
+res
+```
+# Log fold change shrinkage for visualization and ranking
+Shrinkage of effect size (LFC estimates) is useful for visualization and ranking of genes. To shrink the LFC, we pass the dds object to the function lfcShrink. Below we specify to use the apeglm method for effect size shrinkage (Zhu, Ibrahim, and Love 2018), which improves on the previous estimator.
+
+We provide the dds object and the name or number of the coefficient we want to shrink, where the number refers to the order of the coefficient as it appears in resultsNames(dds).
+
+```{r}
+resultsNames(ddsruv)
+resLFC <- lfcShrink(ddsruv, coef="Groups_Keloids_vs_HDF", type="apeglm")
+resLFC
+```
+#p-values and adjusted p-values
+We can order our results table by the smallest p value:
+
+We can summarize some basic tallies using the summary function.
+
+```{r}
+resOrdered_p <- res[order(res$pvalue),]
+resOrdered_fc <- res[order(res$log2FoldChange),]
+summary(res)
+```
+
+How many adjusted p-values were less than 0.1?
+```{r}
+sum(res$padj < 0.1, na.rm=TRUE)
+```
+The results function contains a number of arguments to customize the results table which is generated. You can read about these arguments by looking up ?results. Note that the results function automatically performs independent filtering based on the mean of normalized counts for each gene, optimizing the number of genes which will have an adjusted p value below a given FDR cutoff, alpha. Independent filtering is further discussed below. By default the argument alpha is set to 0.1. If the adjusted p value cutoff will be a value other than 0.1, alpha should be set to that value:
+```{r}
+res05 <- results(ddsruv, alpha=0.5)
+summary(res05)
+
+```
+```{r}
+sum(res05$padj < 0.5, na.rm=TRUE)
+```
+# Exploring and exporting results
+## MA-plot
+In DESeq2, the function plotMA shows the log2 fold changes attributable to a given variable over the mean of normalized counts for all the samples in the DESeqDataSet. Points will be colored red if the adjusted p value is less than 0.1. Points which fall out of the window are plotted as open triangles pointing either up or down.
+```{r}
+plotMA(res, ylim=c(-2,2))
+```
+It is more useful visualize the MA-plot for the shrunken log2 fold changes, which remove the noise associated with log2 fold changes from low count genes without requiring arbitrary filtering thresholds.
+```{r}
+plotMA(resLFC, ylim=c(-2,2))
+```
+
+# Plot counts
+It can also be useful to examine the counts of reads for a single gene across the groups. A simple function for making this plot is plotCounts, which normalizes counts by the estimated size factors (or normalization factors if these were used) and adds a pseudocount of 1/2 to allow for log scale plotting. The counts are grouped by the variables in intgroup, where more than one variable can be specified. Here we specify the gene which had the smallest p value from the results table created above. You can select the gene to plot by rowname or by numeric index.
+
+```{r}
+keep <- row.names(res[res$pvalue < 0.05, ])
+keep
+data_subset <- ddsruv[rownames(ddsruv) %in% keep, ]
+row.names(data_subset)
+
+selected <- c(3, 4, 6, 9, 10, 11, 21, 25, 32, 33, 39, 46)
+
+#plotCounts(data_subset, gene=51, intgroup="Groups")
+```
+
+```{r}
+# Save the plots in the figure folder.
+for (i in selected) {
+  d <- plotCounts(data_subset, gene=i, intgroup="Groups", 
+                returnData=TRUE)
+  g <- ggplot(d, aes(x = Groups, y = count, fill = Groups)) +
+  geom_violin(trim=FALSE) + 
+  geom_boxplot(width= 0.1, fill = "white") + 
+  labs(title = row.names(data_subset[i,]), x = "Groups", y = "Counts") + 
+  theme_classic() + geom_point(position=position_jitter(w=0.1,h=0))
+  
+  pdf(file = paste0(figure.folder,'/miRNAexp_',row.names(data_subset[i,]) , '.pdf'),
+    width = 30/2.54,height = 20/2.54)
+  print(g)
+  dev.off()
+}
+```
+
+# Exporting results to CSV files
+A plain-text file of the results can be exported using the base R functions write.csv or write.delim. We suggest using a descriptive file name indicating the variable and levels which were tested.
+```{r}
+## save the data
+write.csv(as.data.frame(resOrdered_p), 
+          file=paste0(result.folder,"/Ordered_by_pvalues_results.csv"))
+write.csv(as.data.frame(resOrdered_fc), 
+          file=paste0(result.folder,"/Ordered_by_fc_results.csv"))
+```
+
+Exporting only the results which pass an adjusted p value threshold can be accomplished with the subset function, followed by the write.csv function.
+
+```{r}
+resSig <- subset(resOrdered_fc, padj < 0.1)
+resSig
+write.csv(as.data.frame(resSig), 
+          file=paste0(result.folder,"/padjless_0.1_results.csv"))
+
+# pvalue (not adjusted pvalue) < 0.05 results
+resSig005 <- subset(resOrdered_fc, pvalue < 0.05)
+resSig005
+write.csv(as.data.frame(resSig005), 
+          file=paste0(result.folder,"/pval_less_0.05_results.csv"))
+```
+
+# Data transformations and visualization
+## Count data transformations
+### Extracting transformed values
+These transformation functions return an object of class DESeqTransform which is a subclass of RangedSummarizedExperiment. For ~20 samples, running on a newly created DESeqDataSet, rlog may take 30 seconds, while vst takes less than 1 second. The running times are shorter when using blind=FALSE and if the function DESeq has already been run, because then it is not necessary to re-estimate the dispersion values. The assay function is used to extract the matrix of normalized values.
+
+```{r}
+rld <- rlog(ddsruv, blind=FALSE)
+head(assay(rld), 3)
+ntd <- normTransform(ddsruv)
+
+meanSdPlot(assay(ntd))
+meanSdPlot(assay(rld))
+```
+```{r}
+# Keep the select
+keep <- select
+keep
+
+number <- which(rownames(ddsruv) %in% keep)
+number
+
+nts[number, ]
+
+select <- order(rowMeans(counts(ddsruv,normalized=TRUE)),
+                decreasing=TRUE)[1:20]
+
+df <- as.data.frame(colData(ddsruv)[,c("Groups","Sample")])
+pheatmap(assay(ntd)[number,], cluster_rows=FALSE, show_rownames=TRUE,
+         cluster_cols=FALSE, annotation_col=df)
+```
+```{r}
+pheatmap(assay(rld)[number,], cluster_rows=FALSE, show_rownames=TRUE,
+         cluster_cols=FALSE, annotation_col=df)
+```
+# Principal component plot of the samples
+Related to the distance matrix is the PCA plot, which shows the samples in the 2D plane spanned by their first two principal components. This type of plot is useful for visualizing the overall effect of experimental covariates and batch effects.
+```{r}
+pcaData <- plotPCA(rld, intgroup=c("Groups", "Sample"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+g <- ggplot(pcaData, aes(PC1, PC2, color=Groups)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed() + stat_ellipse();
+
+pdf(file = paste0(figure.folder,'/PCA.pdf'),
+    width = 30/2.54,height = 20/2.54)
+print(g)
+dev.off()
+```
+
+
+
+# Session info {.unnumbered}
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```
