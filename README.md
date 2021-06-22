@@ -57,3 +57,6 @@
 - R codes were modified from 3DRNAseq and many previous works
 - 3DRNAseq codes were good to modify for isoform analysis and DTU etc.
   - https://www.biorxiv.org/content/10.1101/656686v1
+
+# miRNAseq
+- DESEQ2 and plotting: miRNAseq.Rmd
