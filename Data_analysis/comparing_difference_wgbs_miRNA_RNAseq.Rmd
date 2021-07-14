@@ -1,0 +1,96 @@
+---
+title: "Comparing different tests"
+output:
+  BiocStyle::html_document
+
+vignette: |
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+```{r}
+setwd("C:/Users/sonyu/Desktop/Comp_miR_met_RNA")
+DM <-read.csv("Differential_methylation_regions_KeloidsvsHDFs.anno.csv", header=TRUE)
+DM <- read.table("DM_annotated.txt", header=TRUE, sep="\t")
+RNA <-read.csv("ranked_topgene_UT_NvsK_total.csv", header=TRUE)
+MIR <-read.csv("resultOrdered_by_fc_results.csv", header=TRUE)
+```
+
+```{r}
+# Combine the RNAseq data and Methylation data together
+DM_RNA <- merge(DM, RNA, by.x="annot.symbol", by.y="Symbol")
+
+# Remove the rows if they are not matched with higher methylation + low exp or low methylation + high exp (logfc +/- 1)
+DM_RNA_L_exp_K <- DM_RNA[DM_RNA$diff_meth < 0 & DM_RNA$logFC > 0, ]
+DM_RNA_H_exp_K <- DM_RNA[DM_RNA$diff_meth > 0 & DM_RNA$logFC < 0, ]
+# Filter the data if the FDR < 0.05
+DM_RNA_L_exp_K <- DM_RNA_L_exp_K[DM_RNA_L_exp_K$PValue < 0.05, ]
+DM_RNA_H_exp_K <- DM_RNA_H_exp_K[DM_RNA_H_exp_K$PValue < 0.05, ]
+DM_RNA_L_exp_K <- subset(DM_RNA_L_exp_K, select = -c(annot.seqnames, annot.start, annot.end, annot.width, annot.strand, annot.id, annot.tx_id, start, end, width, strand, annot.gene_id, X))
+DM_RNA_H_exp_K <- subset(DM_RNA_H_exp_K, select = -c(annot.seqnames, annot.start, annot.end, annot.width, annot.strand, annot.id, annot.tx_id, start, end, width, strand, annot.gene_id, X))
+Lowexp_K_genes <- unique(DM_RNA_L_exp_K$annot.symbol)
+Highexp_k_genes <- unique(DM_RNA_H_exp_K$annot.symbol)
+
+write.csv(DM_RNA_L_exp_K, file = "Low_expressed_genes_in_Keloids.csv")
+write.csv(DM_RNA_H_exp_K, file = "High_expressed_genes_in_Keloids.csv")
+write.csv(Lowexp_K_genes, file = "Low_expressed_genes_name_in_Keloids.csv")
+write.csv(Highexp_k_genes, file = "High_expressed_genes_name_in_Keloids.csv")
+```
+
+# Extract DM data set for MicroRNA
+```{r}
+library(dplyr)
+
+DM_mir <- dplyr::filter(DM, grepl('MIR', annot.symbol))
+DM_mir_name <- unique(DM_mir$annot.symbol)
+write.csv(DM_mir_name, file = "DM_mir_name.csv")
+
+n <- read.table("miR_name_biomart.txt", sep = "\t", header = TRUE)
+n <- n[-c(1, 2, 4)]
+
+# Combine the RNAseq data and Methylation data together
+DM_mir <- DM_mir[-c(9:16)]
+DM_mir <- merge(DM_mir, n, by.x="annot.symbol", by.y="Approved.symbol")
+DM_mir <- dplyr::filter(DM_mir, grepl('hsa', Alias.symbol))
+
+library(fuzzyjoin)
+#install.packages("fuzzyjoin")
+MIR$X <- tolower(MIR$X)
+MIR$X = as.character(MIR$X)
+DM_mir$Alias.symbol = as.character(DM_mir$Alias.symbol)
+t <- MIR %>% regex_inner_join(DM_mir, by = c(X = "Alias.symbol"))
+
+# Remove the rows if they are not matched with higher methylation + low exp or low methylation + high exp
+DM_MIR_L_exp_K <- t[t$diff_meth < 0 & t$log2FoldChange < 0, ]
+DM_MIR_H_exp_K <- t[t$diff_meth > 0 & t$log2FoldChange > 0, ]
+Lowexp_K_miR <- unique(DM_MIR_L_exp_K$X)
+Highexp_k_miR <- unique(DM_MIR_H_exp_K$X)
+write.csv(DM_MIR_L_exp_K, file = "Low_expressed_miR_in_Keloids.csv")
+write.csv(DM_MIR_H_exp_K, file = "High_expressed_miR_in_Keloids.csv")
+write.csv(Lowexp_K_miR, file = "Low_expressed_miRname_in_Keloids.csv")
+write.csv(Highexp_k_miR, file = "High_expressed_miRname_in_Keloids.csv")
+```
+
+# Read the highly expressed miRNA in Keloids related genes  
+```{r}
+HighMIR <- read.csv("High_exp_miRNAgenes.csv", header=FALSE)
+LowMIR <- read.csv("Low_exp_miRNAgenes.csv", header=FALSE)
+HighMIR_RNA <- merge(HighMIR, RNA, by.x="V1", by.y="Symbol")
+LowMIR_RNA <- merge(LowMIR, RNA, by.x="V1", by.y="Symbol")
+
+# Filter HighMir with RNAseq logFC >= 1
+HighMIR_RNA <- HighMIR_RNA[HighMIR_RNA$logFC >= 1, ]
+
+# Filter LowMir with RNAseq logFC <= -1 (Lower expressed miRNA in keloids -> higher expressed genes in keloids)
+LowMIR_RNA <- LowMIR_RNA[LowMIR_RNA$logFC <= -1, ]
+
+write.csv(HighMIR_RNA, file = "HighmiRNA_lowgenes_inkeloids.csv")
+write.csv(LowMIR_RNA, file = "LowmiRNA_lowgenes_inkeloids.csv")
+```
+
+
+# Session info {.unnumbered}
+
+```{r sessionInfo, echo=FALSE}
+sessionInfo()
+```
