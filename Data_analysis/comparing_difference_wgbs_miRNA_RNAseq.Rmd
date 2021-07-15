@@ -60,7 +60,7 @@ MIR$X = as.character(MIR$X)
 DM_mir$Alias.symbol = as.character(DM_mir$Alias.symbol)
 t <- MIR %>% regex_inner_join(DM_mir, by = c(X = "Alias.symbol"))
 
-# Remove the rows if they are not matched with higher methylation + low exp or low methylation + high exp
+# Remove the rows if they are not matched with higher methylation(low miR exp) or low methylation(high miR exp)
 DM_MIR_L_exp_K <- t[t$diff_meth <= -1, ]
 DM_MIR_H_exp_K <- t[t$diff_meth >= 1, ]
 Lowexp_K_miR <- unique(DM_MIR_L_exp_K$X)
