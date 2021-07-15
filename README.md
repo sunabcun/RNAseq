@@ -81,7 +81,7 @@
   - High_exp_miRNAgenes.csv, Low_exp_miRNAgenes.csv
   - Merge the genes if they are matched with RNAseq data.
   - Filter the data if highly expressed miRNA related RNAseq genes has lower expression in keloids. (High miRNA -> regulate gene expression(low exp)).
-    - # Filter HighMir with RNAseq logFC >= 1 (lower expressed genes in keloids (2 times lower in keloids == logFC >= 1))
+    - Filter HighMir with RNAseq logFC >= 1 (lower expressed genes in keloids (2 times lower in keloids == logFC >= 1))
   - "HighmiRNA_lowgenes_inkeloids.csv", "LowmiRNA_lowgenes_inkeloids.csv"
   - Use Cytoscape to make a figure for miRNA and related gene connections
   - Use the gene name for checking overlapped GO functions (ClueGO).
