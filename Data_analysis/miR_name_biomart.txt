@@ -1,0 +1,122 @@
+HGNC ID	Status	Approved symbol	Approved name	Alias symbol
+HGNC:31497	Approved	MIR10A	microRNA 10a	hsa-mir-10a
+HGNC:31544	Approved	MIR15B	microRNA 15b	hsa-mir-15b
+HGNC:31546	Approved	MIR16-2	microRNA 16-2	hsa-mir-16-2
+HGNC:1274	Approved	MIR99AHG	mir-99a-let-7c cluster host gene	MONC
+HGNC:31487	Approved	MIR100	microRNA 100	hsa-mir-100
+HGNC:39522	Approved	MIR100HG	mir-100-let-7a-2-mir-125b-1 cluster host gene	AGD1
+HGNC:39522	Approved	MIR100HG	mir-100-let-7a-2-mir-125b-1 cluster host gene	lncRNA-N2
+HGNC:39522	Approved	MIR100HG	mir-100-let-7a-2-mir-125b-1 cluster host gene	linc-NeD125
+HGNC:31511	Approved	MIR128-2	microRNA 128-2	hsa-mir-128b
+HGNC:31511	Approved	MIR128-2	microRNA 128-2	hsa-mir-128-2
+HGNC:31514	Approved	MIR130A	microRNA 130a	hsa-mir-130a
+HGNC:31516	Approved	MIR132	microRNA 132	hsa-mir-132
+HGNC:31542	Approved	MIR155	microRNA 155	hsa-mir-155
+HGNC:35460	Approved	MIR155HG	MIR155 host gene	BIC
+HGNC:35460	Approved	MIR155HG	MIR155 host gene	NCRNA00172
+HGNC:35460	Approved	MIR155HG	MIR155 host gene	miPEP155
+HGNC:48659	Approved	MIR181A1HG	MIR181A1 host gene	
+HGNC:31567	Approved	MIR196A1	microRNA 196a-1	hsa-mir-196-1
+HGNC:31567	Approved	MIR196A1	microRNA 196a-1	hsa-mir-196a-1
+HGNC:31790	Approved	MIR196B	microRNA 196b	hsa-mir-196b
+HGNC:31589	Approved	MIR212	microRNA 212	hsa-mir-212
+HGNC:31871	Approved	MIR378A	microRNA 378a	hsa-mir-378
+HGNC:32073	Approved	MIR488	microRNA 488	hsa-mir-488
+HGNC:32074	Approved	MIR489	microRNA 489	hsa-mir-489
+HGNC:32076	Approved	MIR491	microRNA 491	hsa-mir-491
+HGNC:53539	Approved	MIR548A1HG	MIR548A1 host gene	
+HGNC:38921	Approved	MIR548AA2	microRNA 548aa-2	hsa-mir-548aa-2
+HGNC:41625	Approved	MIR548AG1	microRNA 548ag-1	hsa-mir-548ag-1
+HGNC:43539	Approved	MIR548AO	microRNA 548ao	hsa-mir-548ao
+HGNC:43550	Approved	MIR548AS	microRNA 548as	hsa-mir-548as
+HGNC:43537	Approved	MIR548AV	microRNA 548av	hsa-mir-548av
+HGNC:35305	Approved	MIR548F1	microRNA 548f-1	hsa-mir-548f-1
+HGNC:35354	Approved	MIR548I3	microRNA 548i-3	hsa-mir-548i-3
+HGNC:35276	Approved	MIR548J	microRNA 548j	hsa-mir-548j
+HGNC:37312	Approved	MIR548Q	microRNA 548q	hsa-mir-548q
+HGNC:52006	Approved	MIR548XHG	MIR548X host gene	
+HGNC:38929	Approved	MIR548Z	microRNA 548z	hsa-mir-548z
+HGNC:32803	Approved	MIR549A	microRNA 549a	hsa-mir-549
+HGNC:32804	Approved	MIR550A1	microRNA 550a-1	hsa-mir-550-1
+HGNC:32843	Approved	MIR587	microRNA 587	hsa-mir-587
+HGNC:32862	Approved	MIR606	microRNA 606	hsa-mir-606
+HGNC:32871	Approved	MIR615	microRNA 615	hsa-mir-615
+HGNC:32875	Approved	MIR619	microRNA 619	hsa-mir-619
+HGNC:32876	Approved	MIR620	microRNA 620	hsa-mir-620
+HGNC:27659	Approved	MIR646HG	MIR646 host gene	
+HGNC:32909	Approved	MIR653	microRNA 653	hsa-mir-653
+HGNC:27662	Approved	MIR663AHG	MIR663A host gene	RP3-410C9.1
+HGNC:44332	Approved	MIR924HG	MIR924 host gene	
+HGNC:35249	Approved	MIR1296	microRNA 1296	hsa-mir-1296
+HGNC:35303	Approved	MIR1305	microRNA 1305	hsa-mir-1305
+HGNC:35399	Approved	MIR1915	microRNA 1915	hsa-mir-1915
+HGNC:31448	Approved	MIR1915HG	MIR1915 host gene	bA418C1.3
+HGNC:51555	Approved	MIR2052HG	MIR2052 host gene	
+HGNC:37069	Approved	MIR2053	microRNA 2053	hsa-mir-2053
+HGNC:38385	Approved	MIR3117	microRNA 3117	hsa-mir-3117
+HGNC:38315	Approved	MIR3119-2	microRNA 3119-2	hsa-mir-3119-2
+HGNC:38380	Approved	MIR3169	microRNA 3169	hsa-mir-3169
+HGNC:38264	Approved	MIR3174	microRNA 3174	hsa-mir-3174
+HGNC:38353	Approved	MIR3179-1	microRNA 3179-1	hsa-mir-3179-1
+HGNC:38250	Approved	MIR3195	microRNA 3195	hsa-mir-3195
+HGNC:38914	Approved	MIR3611	microRNA 3611	hsa-mir-3611
+HGNC:38941	Approved	MIR3648-1	microRNA 3648-1	hsa-mir-3648
+HGNC:38882	Approved	MIR3659	microRNA 3659	hsa-mir-3659
+HGNC:52001	Approved	MIR3681HG	MIR3681 host gene	
+HGNC:38885	Approved	MIR3692	microRNA 3692	hsa-mir-3692
+HGNC:38928	Approved	MIR3714	microRNA 3714	hsa-mir-3714
+HGNC:38988	Approved	MIR3907	microRNA 3907	hsa-mir-3907
+HGNC:38978	Approved	MIR3923	microRNA 3923	hsa-mir-3923
+HGNC:38972	Approved	MIR3938	microRNA 3938	hsa-mir-3938
+HGNC:38291	Approved	MIR4269	microRNA 4269	hsa-mir-4269
+HGNC:38313	Approved	MIR4298	microRNA 4298	hsa-mir-4298
+HGNC:52003	Approved	MIR4300HG	MIR4300 host gene	
+HGNC:38256	Approved	MIR4303	microRNA 4303	hsa-mir-4303
+HGNC:38301	Approved	MIR4305	microRNA 4305	hsa-mir-4305
+HGNC:38260	Approved	MIR4317	microRNA 4317	hsa-mir-4317
+HGNC:53113	Approved	MIR4422HG	MIR4422 host gene	RP11-101C11.1
+HGNC:41667	Approved	MIR4428	microRNA 4428	hsa-mir-4428
+HGNC:41738	Approved	MIR4431	microRNA 4431	hsa-mir-4431
+HGNC:35163	Approved	MIR4435-2HG	MIR4435-2 host gene	LINC00978
+HGNC:35163	Approved	MIR4435-2HG	MIR4435-2 host gene	AGD2
+HGNC:35163	Approved	MIR4435-2HG	MIR4435-2 host gene	AK001796
+HGNC:35163	Approved	MIR4435-2HG	MIR4435-2 host gene	lncRNA-AWPPH
+HGNC:35163	Approved	MIR4435-2HG	MIR4435-2 host gene	MORRBID
+HGNC:41555	Approved	MIR4438	microRNA 4438	hsa-mir-4438
+HGNC:41539	Approved	MIR4452	microRNA 4452	hsa-mir-4452
+HGNC:41761	Approved	MIR4483	microRNA 4483	hsa-mir-4483
+HGNC:41693	Approved	MIR4495	microRNA 4495	hsa-mir-4495
+HGNC:42773	Approved	MIR4500HG	MIR4500 host gene	
+HGNC:41659	Approved	MIR4508	microRNA 4508	hsa-mir-4508
+HGNC:41814	Approved	MIR4643	microRNA 4643	hsa-mir-4643
+HGNC:41612	Approved	MIR4679-1	microRNA 4679-1	hsa-mir-4679-1
+HGNC:41890	Approved	MIR4679-2	microRNA 4679-2	hsa-mir-4679-2
+HGNC:53124	Approved	MIR4713HG	MIR4713 host gene	RP11-108K3.1
+HGNC:41807	Approved	MIR4719	microRNA 4719	hsa-mir-4719
+HGNC:41631	Approved	MIR4776-2	microRNA 4776-2	hsa-mir-4776-2
+HGNC:43476	Approved	MIR5572	microRNA 5572	hsa-mir-5572
+HGNC:49950	Approved	MIR6070	microRNA 6070	hsa-mir-6070
+HGNC:50114	Approved	MIR6079	microRNA 6079	hsa-mir-6079
+HGNC:50204	Approved	MIR6090	microRNA 6090	hsa-mir-6090
+HGNC:50200	Approved	MIR6124	microRNA 6124	hsa-mir-6124
+HGNC:50220	Approved	MIR6129	microRNA 6129	hsa-mir-6129
+HGNC:49929	Approved	MIR6131	microRNA 6131	hsa-mir-6131
+HGNC:50197	Approved	MIR6165	microRNA 6165	hsa-mir-6165
+HGNC:50066	Approved	MIR6732	microRNA 6732	hsa-mir-6732
+HGNC:50139	Approved	MIR6763	microRNA 6763	hsa-mir-6763
+HGNC:50223	Approved	MIR6770-1	microRNA 6770-1	hsa-mir-6770-1
+HGNC:49988	Approved	MIR6784	microRNA 6784	hsa-mir-6784
+HGNC:49926	Approved	MIR6809	microRNA 6809	hsa-mir-6809
+HGNC:50184	Approved	MIR6870	microRNA 6870	hsa-mir-6870
+HGNC:49978	Approved	MIR7159	microRNA 7159	hsa-mir-7159
+HGNC:50268	Approved	MIR7856	microRNA 7856	hsa-mir-7856
+HGNC:50040	Approved	MIR7973-1	microRNA 7973-1	hsa-mir-7973-1
+HGNC:50080	Approved	MIR7973-2	microRNA 7973-2	hsa-mir-7973-2
+HGNC:50137	Approved	MIR8053	microRNA 8053	hsa-mir-8053
+HGNC:50241	Approved	MIR8055	microRNA 8055	hsa-mir-8055
+HGNC:49975	Approved	MIR8062	microRNA 8062	hsa-mir-8062
+HGNC:49989	Approved	MIR8080	microRNA 8080	hsa-mir-8080
+HGNC:50123	Approved	MIR8081	microRNA 8081	hsa-mir-8081
+HGNC:50075	Approved	MIR8084	microRNA 8084	hsa-mir-8084
+HGNC:50839	Approved	MIR8485	microRNA 8485	
+HGNC:37189	Approved	MIRLET7BHG	MIRLET7B host gene	linc-Ppara
