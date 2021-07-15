@@ -60,3 +60,11 @@
 
 # miRNAseq
 - DESEQ2 and plotting: miRNAseq.Rmd
+
+# miRNA + WGBS + RNAseq
+- WGBS + RNAseq: 
+  - Combine the data with matched gene symbol
+  - Remove the rows if they are not matched with higher methylation + low exp or low methylation + high exp (logfc +/- 1)
+  - Filter the data by FDR < 0.05 from RNAseq
+  - "Low_expressed_genes_in_Keloids.csv""High_expressed_genes_in_Keloids.csv""Low_expressed_genes_name_in_Keloids.csv""High_expressed_genes_name_in_Keloids.csv"
+  - Run Cluego to check the overlapping pathways: High_exp_keloids.cluego.cys, Low_exp_keloids.cluego.cys
