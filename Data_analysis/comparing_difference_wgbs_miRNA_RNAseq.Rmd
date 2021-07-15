@@ -81,14 +81,14 @@ LowMIR <- read.csv("Low_exp_miRNAgenes.csv", header=FALSE)
 HighMIR_RNA <- merge(HighMIR, RNA, by.x="V1", by.y="Symbol")
 LowMIR_RNA <- merge(LowMIR, RNA, by.x="V1", by.y="Symbol")
 
-# Filter HighMir with RNAseq logFC > 0
-HighMIR_RNA <- HighMIR_RNA[HighMIR_RNA$logFC > 0 & HighMIR_RNA$PValue < 0.05, ]
+# Filter HighMir with RNAseq logFC >= 1
+HighMIR_RNA <- HighMIR_RNA[HighMIR_RNA$logFC >= 1, ]
 
-# Filter LowMir with RNAseq logFC < 0 (Lower expressed miRNA in keloids -> higher expressed genes in keloids)
-LowMIR_RNA <- LowMIR_RNA[LowMIR_RNA$logFC < 0 & LowMIR_RNA$PValue < 0.05, ]
+# Filter LowMir with RNAseq logFC <= -1 (Lower expressed miRNA in keloids -> higher expressed genes in keloids)
+LowMIR_RNA <- LowMIR_RNA[LowMIR_RNA$logFC <= -1, ]
 
-write.csv(HighMIR_RNA, file = "HighmiRNA_lowgenes_inkeloids_0.csv")
-write.csv(LowMIR_RNA, file = "LowmiRNA_lowgenes_inkeloids_0.csv")
+write.csv(HighMIR_RNA, file = "HighmiRNA_lowgenes_inkeloids.csv")
+write.csv(LowMIR_RNA, file = "LowmiRNA_lowgenes_inkeloids.csv")
 ```
 
 
