@@ -61,8 +61,8 @@ DM_mir$Alias.symbol = as.character(DM_mir$Alias.symbol)
 t <- MIR %>% regex_inner_join(DM_mir, by = c(X = "Alias.symbol"))
 
 # Remove the rows if they are not matched with higher methylation + low exp or low methylation + high exp
-DM_MIR_L_exp_K <- t[t$diff_meth < 0 & t$log2FoldChange < 0, ]
-DM_MIR_H_exp_K <- t[t$diff_meth > 0 & t$log2FoldChange > 0, ]
+DM_MIR_L_exp_K <- t[t$diff_meth <= -1, ]
+DM_MIR_H_exp_K <- t[t$diff_meth >= 1, ]
 Lowexp_K_miR <- unique(DM_MIR_L_exp_K$X)
 Highexp_k_miR <- unique(DM_MIR_H_exp_K$X)
 write.csv(DM_MIR_L_exp_K, file = "Low_expressed_miR_in_Keloids.csv")
@@ -73,19 +73,22 @@ write.csv(Highexp_k_miR, file = "High_expressed_miRname_in_Keloids.csv")
 
 # Read the highly expressed miRNA in Keloids related genes  
 ```{r}
+# The genes are retrieved from miRNA gene data base (miRTarBase release 8.0) using cytargetlinker.
 HighMIR <- read.csv("High_exp_miRNAgenes.csv", header=FALSE)
 LowMIR <- read.csv("Low_exp_miRNAgenes.csv", header=FALSE)
+
+# Merge the genes if they are matched with RNAseq data.
 HighMIR_RNA <- merge(HighMIR, RNA, by.x="V1", by.y="Symbol")
 LowMIR_RNA <- merge(LowMIR, RNA, by.x="V1", by.y="Symbol")
 
-# Filter HighMir with RNAseq logFC >= 1
-HighMIR_RNA <- HighMIR_RNA[HighMIR_RNA$logFC >= 1, ]
+# Filter HighMir with RNAseq logFC > 0
+HighMIR_RNA <- HighMIR_RNA[HighMIR_RNA$logFC > 0 & HighMIR_RNA$PValue < 0.05, ]
 
-# Filter LowMir with RNAseq logFC <= -1 (Lower expressed miRNA in keloids -> higher expressed genes in keloids)
-LowMIR_RNA <- LowMIR_RNA[LowMIR_RNA$logFC <= -1, ]
+# Filter LowMir with RNAseq logFC < 0 (Lower expressed miRNA in keloids -> higher expressed genes in keloids)
+LowMIR_RNA <- LowMIR_RNA[LowMIR_RNA$logFC < 0 & LowMIR_RNA$PValue < 0.05, ]
 
-write.csv(HighMIR_RNA, file = "HighmiRNA_lowgenes_inkeloids.csv")
-write.csv(LowMIR_RNA, file = "LowmiRNA_lowgenes_inkeloids.csv")
+write.csv(HighMIR_RNA, file = "HighmiRNA_lowgenes_inkeloids_0.csv")
+write.csv(LowMIR_RNA, file = "LowmiRNA_lowgenes_inkeloids_0.csv")
 ```
 
 
