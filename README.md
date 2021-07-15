@@ -68,3 +68,21 @@
   - Filter the data by FDR < 0.05 from RNAseq
   - "Low_expressed_genes_in_Keloids.csv""High_expressed_genes_in_Keloids.csv""Low_expressed_genes_name_in_Keloids.csv""High_expressed_genes_name_in_Keloids.csv"
   - Run Cluego to check the overlapping pathways: High_exp_keloids.cluego.cys, Low_exp_keloids.cluego.cys
+
+- WGBS + miRNAseq
+  - miRNA has different annotations so had to change the symbol to official names using biomart: miR_name_biomart.txt
+  - Modify name to recognize each other between WGBS and miRNAseq data: comparing_difference_wgbs_miRNA_RNAseq.Rmd
+  - Remove the rows if they are not matched with higher methylation(low miRNA exp) or low methylation(high miRNA exp). 
+  - "Low_expressed_miR_in_Keloids.csv", "High_expressed_miR_in_Keloids.csv", "Low_expressed_miRname_in_Keloids.csv", "High_expressed_miRname_in_Keloids.csv"
+
+- Using High/Low expressed miRNA name in Keloids, search the genes related to the miRNA.
+  - The genes are retrieved from miRNA gene data base (miRTarBase release 8.0) using cytargetlinker.
+  - https://cytargetlinker.github.io/pages/linksets/mirtarbase
+  - High_exp_miRNAgenes.csv, Low_exp_miRNAgenes.csv
+  - Merge the genes if they are matched with RNAseq data.
+  - Filter the data if highly expressed miRNA related RNAseq genes has lower expression in keloids. (High miRNA -> regulate gene expression(low exp)).
+    - # Filter HighMir with RNAseq logFC >= 1 (lower expressed genes in keloids (2 times lower in keloids == logFC >= 1))
+  - "HighmiRNA_lowgenes_inkeloids.csv", "LowmiRNA_lowgenes_inkeloids.csv"
+  - Use Cytoscape to make a figure for miRNA and related gene connections
+  - Use the gene name for checking overlapped GO functions (ClueGO).
+ 
